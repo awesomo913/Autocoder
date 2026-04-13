@@ -1,0 +1,62 @@
+{
+  "Gemini": {
+    "input_selector": ".ql-editor[contenteditable=\"true\"], div.input-area-container [contenteditable=\"true\"], .text-input-field_textarea textarea",
+    "input_is_contenteditable": true,
+    "send_with_enter": true,
+    "send_button_selector": "button[aria-label=\"Send message\"], button.send-button, button[mattooltip=\"Send\"]",
+    "response_selector": ".response-container .markdown, .model-response-text .markdown, message-content .markdown",
+    "last_response_selector": ".response-container:last-of-type .markdown, .conversation-container > :last-child .markdown",
+    "loading_selector": ".loading-indicator, .response-container mat-spinner, [aria-label=\"Loading\"]",
+    "stop_button_selector": "button[aria-label=\"Stop response\"], button.stop-button"
+  },
+  "ChatGPT": {
+    "input_selector": "#prompt-textarea, div[contenteditable=\"true\"][id=\"prompt-textarea\"]",
+    "input_is_contenteditable": true,
+    "send_with_enter": true,
+    "send_button_selector": "button[data-testid=\"send-button\"], button[data-testid=\"composer-send-button\"], button[aria-label=\"Send prompt\"], button[aria-label=\"Send message\"]",
+    "response_selector": "div[data-message-author-role=\"assistant\"] .markdown, div[data-message-author-role=\"assistant\"]",
+    "last_response_selector": "div[data-message-author-role=\"assistant\"]:last-of-type .markdown, div[data-message-author-role=\"assistant\"]:last-of-type",
+    "loading_selector": ".result-streaming, button[data-testid=\"stop-button\"]",
+    "stop_button_selector": "button[data-testid=\"stop-button\"], button[aria-label=\"Stop generating\"]"
+  },
+  "Claude": {
+    "input_selector": "div.ProseMirror[contenteditable=\"true\"], div[contenteditable=\"true\"].ProseMirror, fieldset div[contenteditable=\"true\"]",
+    "input_is_contenteditable": true,
+    "send_with_enter": true,
+    "send_button_selector": "button[aria-label=\"Send Message\"], button[aria-label=\"Send message\"]",
+    "response_selector": "div[data-is-streaming] .font-claude-message, .font-claude-message, [data-testid=\"chat-message-content\"]",
+    "last_response_selector": "[data-is-streaming]:last-of-type .font-claude-message, .font-claude-message:last-of-type",
+    "loading_selector": "div[data-is-streaming=\"true\"]",
+    "stop_button_selector": "button[aria-label=\"Stop Response\"], button[aria-label=\"Stop response\"]"
+  },
+  "OpenRouter": {
+    "input_selector": "textarea[placeholder*=\"message\"], textarea[placeholder*=\"Message\"], textarea",
+    "input_is_contenteditable": false,
+    "send_with_enter": false,
+    "send_button_selector": "button[aria-label=\"Send message\"], button[type=\"submit\"], button[aria-label=\"Send\"]",
+    "response_selector": ".prose, .markdown-body, [class*=\"message\"] .prose",
+    "last_response_selector": ".prose:last-of-type",
+    "loading_selector": "[class*=\"animate-pulse\"], [class*=\"animate-spin\"]",
+    "stop_button_selector": "button[aria-label=\"Stop\"], button[aria-label=\"Stop generating\"]"
+  },
+  "Ollama Web UI": {
+    "input_selector": "textarea#chat-textarea, textarea[placeholder*=\"message\"], #chat-textarea",
+    "input_is_contenteditable": false,
+    "send_with_enter": true,
+    "send_button_selector": "button#send-message-button, button[type=\"submit\"]",
+    "response_selector": ".chat-assistant .prose, [data-role=\"assistant\"] .prose, .assistant-message",
+    "last_response_selector": ".chat-assistant:last-of-type .prose, [data-role=\"assistant\"]:last-of-type .prose",
+    "loading_selector": "[class*=\"generating\"], .chat-assistant .animate-pulse",
+    "stop_button_selector": "button#stop-response-button, button[aria-label=\"Stop\"]"
+  },
+  "Copilot": {
+    "input_selector": "textarea[placeholder*=\"message\"], #searchbox textarea, textarea",
+    "input_is_contenteditable": false,
+    "send_with_enter": true,
+    "send_button_selector": "button[aria-label=\"Submit\"], button[type=\"submit\"]",
+    "response_selector": ".ac-container .ac-textBlock, [class*=\"response\"] p",
+    "last_response_selector": ".ac-container:last-of-type .ac-textBlock",
+    "loading_selector": "[class*=\"typing\"], [class*=\"loading\"]",
+    "stop_button_selector": "button[aria-label=\"Stop responding\"]"
+  }
+}

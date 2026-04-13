@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.spec
+*.exe
+*.zip
+.env
+*.log
+broadcast_state.json
+broadcast_fourway_backup.txt
+app_web_fourway_backup.txt
+cdp_test.py
+launch.pyw
