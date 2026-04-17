@@ -586,11 +586,14 @@ class GeminiCoderWebApp(GeminiCoderApp):
         )
         self._content.pack(fill="both", expand=True)
 
-        # Base class expects this dict.
+        # Base class _show_view iterates these — must exist even if empty.
         self._frames: dict[str, ctk.CTkFrame] = {}
+        self._nav_buttons: dict[str, ctk.CTkButton] = {}
 
-        # Build the one view this app uses.
+        # Build the one view this app uses and pack it immediately.
         self._build_settings_view()
+        if "settings" in self._frames:
+            self._frames["settings"].pack(fill="both", expand=True)
 
     # ── Settings view with session management ─────────────────────
 
