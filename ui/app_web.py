@@ -494,6 +494,13 @@ class GeminiCoderWebApp(GeminiCoderApp):
     """AI Browser Coder - multi-session universal AI automation."""
 
     def __init__(self) -> None:
+        # NOTE: we deliberately call ctk.CTk.__init__ directly instead of
+        # super().__init__(). The base GeminiCoderApp.__init__ constructs a
+        # real GeminiClient + TaskExecutor + ExpansionEngine and then calls
+        # self._build_ui() which builds expand/tasks/history/diagnostics
+        # views we don't want in browser mode. We override _build_ui below
+        # to build a minimal container set (status bar + content + settings
+        # view) and call it explicitly after our own state is set up.
         ctk.CTk.__init__(self)
 
         self._start_time = time.time()
@@ -550,6 +557,40 @@ class GeminiCoderWebApp(GeminiCoderApp):
 
         self.after(500, lambda: self._show_view("settings"))
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    # ── UI construction ───────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        """Minimal UI: status bar (bottom) + scrollable content (fill).
+
+        Overrides the base class's full UI (top bar + sidebar + 5 views) since
+        browser mode only uses the settings-style session management view.
+        Pack ORDER matters: status bar MUST be packed at side="bottom" BEFORE
+        the content frame is packed with expand=True. If content is packed
+        first, it claims all available space and pushes the status bar off
+        the bottom edge on maximized windows.
+        """
+        c = self._colors
+        self.configure(fg_color=c["bg_primary"])
+
+        # Status bar FIRST at bottom so it reserves its slot.
+        self._status_bar = StatusBar(
+            self, colors=c, fg_color=c["bg_secondary"]
+        )
+        self._status_bar.pack(fill="x", side="bottom")
+        self._status_bar.set_status("Ready", "info")
+
+        # Main content container AFTER so it fills the remaining space.
+        self._content = ctk.CTkFrame(
+            self, fg_color=c["bg_primary"], corner_radius=0
+        )
+        self._content.pack(fill="both", expand=True)
+
+        # Base class expects this dict.
+        self._frames: dict[str, ctk.CTkFrame] = {}
+
+        # Build the one view this app uses.
+        self._build_settings_view()
 
     # ── Settings view with session management ─────────────────────
 

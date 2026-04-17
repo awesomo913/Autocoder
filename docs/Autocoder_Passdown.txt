@@ -1,0 +1,243 @@
+================================================================================
+ AUTOCODER  PASSDOWN DOCUMENT
+ Written: 2026-04-16
+ Previous session: Claude Opus 4.6 (1M context)
+ Purpose: bring a future Claude up to speed instantly. Keep this on the Desktop.
+================================================================================
+
+This document is the source of truth for the state of the Autocoder install on
+this machine. If you are a future Claude opening a new conversation, READ THIS
+FIRST before touching anything. Companion file: Autocoder_Prompt_History.txt
+(all the user's messages, in order).
+
+
+--------------------------------------------------------------------------------
+ WHAT AUTOCODER IS
+--------------------------------------------------------------------------------
+Autocoder drives a browser-based AI chat (Gemini / ChatGPT / Claude) via Chrome
+DevTools Protocol (CDP). You give it a coding task; it sends the task to the
+AI, extracts the code from the response, feeds it back in with a rotating
+"improvement focus," and loops until you stop it. Each iteration auto-saves a
+.txt file into ~/Downloads.
+
+Source repo cloned from: https://github.com/awesomo913/Autocoder.git
+Clone location:          C:\Users\default.LAPTOP-S2O9G7EP\Desktop\AI2\CLaud tool\Autocoder
+
+Autocoder is NOT self-contained  it imports the base package `gemini_coder`
+that lives in a sibling directory:
+    C:\Users\default.LAPTOP-S2O9G7EP\Desktop\AI2\CLaud tool\claude_interaction_tool\gemini_coder
+
+
+--------------------------------------------------------------------------------
+ LAYOUT ON THIS MACHINE
+--------------------------------------------------------------------------------
+Desktop\AI2\CLaud tool\
+|
++-- Start Autocoder.bat            <- launches the Python source (patched)
++-- Start Token Saver.bat
+|
++-- Autocoder\                     <- the GitHub repo, with my patches on top
+|   +-- launch.pyw                 <- entry point the bat file runs
+|   +-- build_exe.py               <- my rewritten one-file PyInstaller script
+|   +-- ui\app_web.py              <- PATCHED (see FIXES below)
+|   +-- universal_client.py        <- PATCHED
+|   +-- cdp_client.py              <- PATCHED
+|   +-- broadcast.py, session_manager.py, ai_profiles.py, ...
+|   +-- __main__.py, __init__.py
+|
++-- claude_interaction_tool\       <- older sibling install, hosts gemini_coder
+|   +-- gemini_coder\              <- base package Autocoder imports from
+|   |   +-- history.py             <- PATCHED
+|   |   +-- config.py, task_manager.py, expander.py, ...
+|   |   +-- ui\app.py              <- defines GeminiCoderApp base class
+|   +-- gemini_coder_web\          <- the OLD web edition (still works, ignore)
+
+Desktop\
++-- Autocoder.exe                  <- single-file PyInstaller build, ~20 MB
++-- Autocoder_Passdown.txt         <- this file
++-- Autocoder_Prompt_History.txt   <- every user prompt from the conversation
+
+
+--------------------------------------------------------------------------------
+ FIXES APPLIED DURING THE SESSION (keep these preserved)
+--------------------------------------------------------------------------------
+
+FIX 1  Missing super().__init__() in GeminiCoderWebApp
+File:  Autocoder\ui\app_web.py  around line 497
+Was:   ctk.CTk.__init__(self)
+Now:   super().__init__()       (calls GeminiCoderApp.__init__)
+Why:   GeminiCoderApp.__init__ creates self._content, self._frames, self._views,
+       and initializes self._status_bar = None. The old code skipped all of
+       that, so _build_settings_view crashed silently inside the 500ms after()
+       callback on AttributeError: 'GeminiCoderWebApp' has no attribute
+       '_content'. Result was a default 200x200 empty window  which is what
+       the user saw when they reported "GUI didn't load."
+
+FIX 2  Pack-order bug pushing the status bar off-screen
+File:  Autocoder\ui\app_web.py  (immediately after the super() call from FIX 1)
+What:  After super().__init__(), self._content is packed with fill="both",
+       expand=True  leaving no room for any widget packed later with
+       side="bottom". The user diagnosed this pattern from another program
+       they'd previously fixed. Resolution:
+           self._content.pack_forget()
+           self._status_bar = StatusBar(self, self._colors)   # self-packs bottom
+           self._content.pack(fill="both", expand=True)
+Why:   Tk's pack is order-sensitive. Whichever widget is packed FIRST with a
+       side= claims its slot first; anything packed after with expand=True
+       takes the rest. Before, the bar got no slot.
+
+FIX 3  _build_ui never called _build_settings_view
+File:  Autocoder\ui\app_web.py  (new override right after __init__)
+What:  The new repo simplified away the tabview-based _build_ui but forgot to
+       replace it with anything. So self._frames stayed empty, and the
+       after(500, _show_view("settings")) scheduled call had nothing to show.
+       Added:
+           def _build_ui(self) -> None:
+               self._build_settings_view()
+
+FIX 4  launch.pyw: clamps to screen, forces foreground, sets sys.path
+File:  Autocoder\launch.pyw
+What:  The original config saved window_height=900, but this machine's screen
+       is 864 px tall. Window was spawning with ~200 px below the visible
+       area and IsForeground=False, so the user couldn't see it. Launcher now:
+         - adds CLaud tool\ and claude_interaction_tool\ to sys.path
+         - clamps window to (screen_w - 80) x (screen_h - 140)
+         - centers horizontally, biases y toward the top third
+         - deiconify + lift + -topmost pulse + focus_force on launch
+Also:  Updated Start Autocoder.bat to launch Autocoder\launch.pyw (was
+       pointing to gemini_coder_web\launch.pyw which doesn't exist in
+       CLaud tool\).
+
+FIX 5  safe_call signature mismatch in pyautogui fallback
+File:  Autocoder\universal_client.py  in _do_generate_pyautogui
+Was:   result = safe_call(send_prompt_and_get_response,
+                           args=(...), kwargs={...}, timeout_ms=330_000)
+       ...then: if result.timed_out: ...
+Now:   Uses concurrent.futures.ThreadPoolExecutor with future.result(timeout=330)
+Why:   gemini_coder.safe_exec.safe_call is def safe_call(func, *args, default,
+       **kwargs)  it forwards all keyword args straight to the wrapped
+       function. So 'args=(...)' became an unknown kwarg on the target. Also
+       safe_call returns the raw return value (or default), NOT a result
+       object with .timed_out / .error / .stdout. The old code was written
+       against a different, richer safe_call that no longer exists in this
+       tree. The new path uses ThreadPoolExecutor, raises clear RuntimeErrors.
+
+FIX 6  CDP innerHTML blocked by Gemini's Trusted Types CSP
+File:  Autocoder\cdp_client.py  in set_input_value() fallback block
+Was:   el.innerHTML = '';
+Now:   el.textContent = '';
+Why:   As of recent Gemini updates, gemini.google.com enforces Trusted Types.
+       Assigning innerHTML throws: "Failed to set the 'innerHTML' property on
+       'Element': This document requires 'TrustedHTML' assignment." textContent
+       isn't restricted and does the same thing (empties the element).
+
+FIX 7  History save/load crash on asdict() and legacy 'id' field
+File:  claude_interaction_tool\gemini_coder\history.py
+Was:   to_dict():   return asdict(self)      # self is NOT a dataclass
+       from_dict(): return cls(**data)        # crashed on unknown 'id' key
+Now:   to_dict builds a dict manually; from_dict filters to known keys only.
+Why:   HistoryEntry is a plain class, not @dataclass, so asdict raised.
+       Persisted history files also had legacy entries with an 'id' field
+       that __init__ doesn't accept  from_dict now drops unknown keys.
+
+
+--------------------------------------------------------------------------------
+ HOW TO LAUNCH
+--------------------------------------------------------------------------------
+Preferred (always picks up latest source changes):
+    Double-click "Start Autocoder.bat" in Desktop\AI2\CLaud tool\
+
+From a terminal:
+    cd "C:\Users\default.LAPTOP-S2O9G7EP\Desktop\AI2\CLaud tool"
+    pythonw Autocoder\launch.pyw
+
+Standalone single-file (frozen at time of build  NOT live):
+    Double-click Desktop\Autocoder.exe
+    Rebuild with: python Autocoder\build_exe.py
+
+Logs:    ~\.autocoder\autocoder.log
+Config:  ~\AppData\Roaming\gemini_coder\config.json
+State:   ~\.autocoder\broadcast_state.json  (stop/resume persistence)
+Chrome:  ~\.autocoder\chrome_profile\       (CDP-controlled Chrome profile)
+
+
+--------------------------------------------------------------------------------
+ THE IMPROVEMENT LOOP  HOW THE USER ACTUALLY USES IT
+--------------------------------------------------------------------------------
+1. Launch Autocoder.
+2. Click "Launch CDP Browser" on the session card  opens a dedicated Chrome
+   instance at port 9222 on gemini.google.com. Sign in once if needed.
+3. Click "Grab" on the same card  binds the browser tab to the session.
+4. In the "Autocode  Endless Improvement Loop" panel:
+     - Paste a task prompt
+     - Tick improvement focuses (Deep Code Dive, Solid & Functional, Beautiful
+       GUI, Review & Grade are a good default set)
+     - Optional: turn on Perfection Loop to cycle through all checked focuses
+     - Click "Start Autocoding"
+5. Each iteration saves a timestamped .txt file to ~\Downloads\ with the
+   extracted code.
+
+Stop / resume: Ctrl+K kills; Ctrl+R or the Resume button picks back up.
+
+
+--------------------------------------------------------------------------------
+ KNOWN REMAINING QUIRKS (not blockers)
+--------------------------------------------------------------------------------
+- "prompt_engine not found  prompts will be sent raw" is a harmless WARNING.
+  prompt_engine.py is optional; without it, prompts are sent verbatim, which
+  the user prefers anyway.
+
+- "mousetraffic" import fails silently. Also optional; only relevant if
+  running multiple sessions across corners simultaneously.
+
+- CDP Input.insertText occasionally times out when the Chrome window is
+  minimized or the tab was backgrounded. Keep the Chrome window visible
+  during loops. The textContent fallback (FIX 6) now works when insertText
+  fails, but both want the tab to be renderable.
+
+- 5-consecutive-errors rule: if generation fails 5 iterations in a row, the
+  loop auto-stops. This IS intentional. Click Grab (to re-bind the CDP tab
+  if it disconnected) then Start Autocoding again.
+
+- The exe on the Desktop is a snapshot; source is live. If you edit any
+  patched file, re-run `python Autocoder\build_exe.py` before handing the
+  exe to someone.
+
+
+--------------------------------------------------------------------------------
+ LAST KNOWN RUN STATE
+--------------------------------------------------------------------------------
+Last broadcast attempt:  2026-04-16 01:45 ’ 01:51
+Iterations completed:    1 (v1, 28,883 bytes, 742 lines, task = lightweight
+                         coding_essentials.py toolkit)
+Output file:             ~\Downloads\Gemini_top-left_singlefile_python_program
+                         _called_codingessentialsp_v1_Initia_20260416_015045.txt
+Why it stopped:          CDP tab disconnected mid-loop AND the pyautogui
+                         fallback hit the safe_call bug (now fixed by FIX 5).
+
+Next time the user clicks Start Autocoding, the patched code should
+complete multiple iterations without the same failure mode.
+
+
+--------------------------------------------------------------------------------
+ CONVENTIONS FOR A FUTURE CLAUDE
+--------------------------------------------------------------------------------
+- Never launch Autocoder repeatedly while diagnosing; one launch is enough.
+  The user explicitly asked this Claude to stop and investigate without
+  re-launching. Honor that.
+
+- Before recommending edits, read the file. Do not recommend based on this
+  passdown alone  treat this doc as a starting map, not a spec.
+
+- If the user asks for help in a new conversation and references "the
+  Autocoder issue," start by reading:
+     1. This file (Autocoder_Passdown.txt)
+     2. Autocoder_Prompt_History.txt
+     3. ~\.autocoder\autocoder.log  (the actual current state of the app)
+
+- The user prefers short, concrete answers and gets annoyed by re-launches,
+  repeated diagnostics, and prose that summarizes instead of fixing.
+
+================================================================================
+ END OF PASSDOWN
+================================================================================

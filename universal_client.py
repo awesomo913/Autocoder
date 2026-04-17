@@ -11,13 +11,13 @@ CDP connects to Chrome/Edge running with --remote-debugging-port=9222.
 It finds the right tab by URL pattern, then interacts via DOM selectors.
 """
 
+import concurrent.futures
 import logging
 import threading
 import time
 from typing import Callable, Optional
 
 from gemini_coder.gemini_client import Conversation
-from gemini_coder.safe_exec import safe_call
 
 from .ai_profiles import AIProfile, GEMINI_PROFILE
 from .browser_actions import (
@@ -466,28 +466,40 @@ class UniversalBrowserClient:
         prompt: str,
         on_progress: Optional[Callable[[str], None]],
     ) -> str:
-        """Browser automation with defensive timeout (pyautogui)."""
-        result = safe_call(
-            send_prompt_and_get_response,
-            args=(self._hwnd, prompt),
-            kwargs={
-                "profile": self._profile,
-                "timeout": 300,
-                "on_progress": on_progress,
-                "cancel_event": self._cancel_event,
-            },
-            timeout_ms=330_000,
-        )
+        """Browser automation with defensive timeout (pyautogui).
 
-        if result.timed_out:
-            raise RuntimeError(
-                f"{self._profile.name} automation timed out. "
-                "Force-killed to protect the main loop."
+        The upstream gemini_coder.safe_exec.safe_call we used to call here
+        forwards **kwargs straight to the wrapped function and returns the
+        raw result (not a result object). That signature broke this call
+        site with TypeError on args= / kwargs=. We now use
+        ThreadPoolExecutor.submit + future.result(timeout=...) so the
+        timeout semantics are explicit and the error path is sane.
+        """
+        timeout_seconds = 330
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                send_prompt_and_get_response,
+                self._hwnd,
+                prompt,
+                profile=self._profile,
+                timeout=300,
+                on_progress=on_progress,
+                cancel_event=self._cancel_event,
             )
-        if result.error:
-            raise RuntimeError(f"{self._profile.name} error: {result.error}")
+            try:
+                result = future.result(timeout=timeout_seconds)
+            except concurrent.futures.TimeoutError as exc:
+                raise RuntimeError(
+                    f"{self._profile.name} automation timed out after "
+                    f"{timeout_seconds}s. Force-killed to protect the main loop."
+                ) from exc
+            except Exception as exc:
+                raise RuntimeError(
+                    f"{self._profile.name} error: {exc}"
+                ) from exc
 
-        return result.stdout
+        return result or ""
 
     def test_connection(self) -> tuple[bool, str]:
         """Test that the AI window is accessible."""

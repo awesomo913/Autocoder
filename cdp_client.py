@@ -453,7 +453,9 @@ class CDPConnection:
                 const el = document.querySelector({json.dumps(selector)});
                 if (!el) return false;
                 el.focus();
-                el.innerHTML = '';
+                // Use textContent, not innerHTML: Gemini enforces Trusted Types CSP
+                // which blocks innerHTML assignment. textContent is unrestricted.
+                el.textContent = '';
                 document.execCommand('insertText', false, {escaped_text});
                 el.dispatchEvent(new Event('input', {{bubbles: true}}));
                 return true;
