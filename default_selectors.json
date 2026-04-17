@@ -2,11 +2,11 @@
   "Gemini": {
     "input_selector": ".ql-editor[contenteditable=\"true\"], div.input-area-container [contenteditable=\"true\"], .text-input-field_textarea textarea",
     "input_is_contenteditable": true,
-    "send_with_enter": true,
+    "send_with_enter": false,
     "send_button_selector": "button[aria-label=\"Send message\"], button.send-button, button[mattooltip=\"Send\"]",
-    "response_selector": ".response-container .markdown, .model-response-text .markdown, message-content .markdown",
-    "last_response_selector": ".response-container:last-of-type .markdown, .conversation-container > :last-child .markdown",
-    "loading_selector": ".loading-indicator, .response-container mat-spinner, [aria-label=\"Loading\"]",
+    "response_selector": ".model-response-text, message-content, .response-container .markdown",
+    "last_response_selector": ".model-response-text:last-of-type, message-content:last-of-type",
+    "loading_selector": "mat-progress-spinner, .loading-indicator, [aria-label=\"Loading\"]",
     "stop_button_selector": "button[aria-label=\"Stop response\"], button.stop-button"
   },
   "ChatGPT": {

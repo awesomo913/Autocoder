@@ -39,7 +39,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 DEFAULT_CDP_PORT = 9222
-CDP_TIMEOUT = 10  # seconds for individual CDP commands
+CDP_TIMEOUT = 30  # seconds for individual CDP commands (needs headroom for large text)
 COMPLETION_POLL_INTERVAL = 1.5  # seconds between completion checks
 MAX_COMPLETION_WAIT = 300  # max seconds to wait for AI response
 
@@ -91,11 +91,11 @@ class CDPSelectors:
 GEMINI_SELECTORS = CDPSelectors(
     input_selector='.ql-editor[contenteditable="true"], div.input-area-container [contenteditable="true"], .text-input-field_textarea textarea',
     input_is_contenteditable=True,
-    send_with_enter=True,
+    send_with_enter=False,  # Must click send button; Enter in Quill = newline
     send_button_selector='button[aria-label="Send message"], button.send-button, button[mattooltip="Send"]',
-    response_selector='.response-container .markdown, .model-response-text .markdown, message-content .markdown',
-    last_response_selector='.response-container:last-of-type .markdown, .conversation-container > :last-child .markdown',
-    loading_selector='.loading-indicator, .response-container mat-spinner, [aria-label="Loading"]',
+    response_selector='.model-response-text, message-content, .response-container .markdown',
+    last_response_selector='.model-response-text:last-of-type, message-content:last-of-type',
+    loading_selector='mat-progress-spinner, .loading-indicator, [aria-label="Loading"]',
     stop_button_selector='button[aria-label="Stop response"], button.stop-button',
 )
 
@@ -377,19 +377,43 @@ class CDPConnection:
             return []
 
     def click_element(self, selector: str) -> bool:
-        """Click a DOM element by selector."""
+        """Click a DOM element by selector.
+
+        Dispatches a full pointer + mouse event sequence (pointerdown,
+        mousedown, pointerup, mouseup, click) via JS dispatchEvent.
+        Angular/Material components need these bubbling events to trigger
+        their handlers. Falls back to el.click() if dispatchEvent fails.
+        """
         js = f"""
         (() => {{
             const el = document.querySelector({json.dumps(selector)});
             if (!el) return false;
-            el.scrollIntoView({{block: 'center'}});
-            el.focus();
+            const events = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
+            for (const type of events) {{
+                el.dispatchEvent(new MouseEvent(type, {{
+                    bubbles: true, cancelable: true, view: window
+                }}));
+            }}
+            return true;
+        }})()
+        """
+        try:
+            result = bool(self.evaluate_js(js))
+            if result:
+                return True
+        except Exception:
+            pass
+        # Fallback: simple el.click()
+        fallback_js = f"""
+        (() => {{
+            const el = document.querySelector({json.dumps(selector)});
+            if (!el) return false;
             el.click();
             return true;
         }})()
         """
         try:
-            return bool(self.evaluate_js(js))
+            return bool(self.evaluate_js(fallback_js))
         except Exception:
             return False
 
@@ -404,67 +428,41 @@ class CDPConnection:
         escaped_text = json.dumps(text)
 
         if is_contenteditable:
-            # Step 1: Focus the element and clear it
-            focus_js = f"""
-            (() => {{
-                const el = document.querySelector({json.dumps(selector)});
-                if (!el) return false;
-                el.focus();
-                // Select all existing content and delete it
-                const sel = window.getSelection();
-                sel.selectAllChildren(el);
-                return true;
-            }})()
-            """
-            try:
-                focused = self.evaluate_js(focus_js)
-                if not focused:
-                    return False
-            except Exception:
-                return False
-
-            # Step 2: Delete existing content via CDP keyboard
-            try:
-                self.send_command("Input.dispatchKeyEvent", {
-                    "type": "keyDown", "key": "Backspace", "code": "Backspace",
-                    "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8,
-                })
-                self.send_command("Input.dispatchKeyEvent", {
-                    "type": "keyUp", "key": "Backspace", "code": "Backspace",
-                    "windowsVirtualKeyCode": 8, "nativeVirtualKeyCode": 8,
-                })
-            except Exception:
-                pass  # May fail if empty, that's OK
-
+            # Insert text using execCommand which triggers the editor's
+            # mutation observer and framework model updates (Angular, React).
+            # This is critical for Gemini — CDP Input.insertText and
+            # Quill's setText() bypass Angular bindings, so the send
+            # button won't work afterwards.
+            #
+            # For large texts (>50KB), use the bulk upload approach.
             import time as _time
-            _time.sleep(0.1)
+            LARGE_THRESHOLD = 50_000
 
-            # Step 3: Insert text via CDP (works with ProseMirror, Quill, etc.)
-            try:
-                self.send_command("Input.insertText", {"text": text})
-                logger.debug("Inserted %d chars via CDP Input.insertText", len(text))
-                return True
-            except Exception as e:
-                logger.warning("CDP Input.insertText failed: %s, trying execCommand", e)
+            if len(text) <= LARGE_THRESHOLD:
+                try:
+                    insert_js = f"""
+                    (() => {{
+                        const el = document.querySelector({json.dumps(selector)});
+                        if (!el) return false;
+                        el.focus();
+                        document.execCommand('selectAll');
+                        document.execCommand('insertText', false, {json.dumps(text)});
+                        return el.textContent.length > 0;
+                    }})()
+                    """
+                    result = self.evaluate_js(insert_js)
+                    if result:
+                        logger.debug("Inserted %d chars via execCommand", len(text))
+                        return True
+                    logger.warning("execCommand returned false for %d chars", len(text))
+                except Exception as e:
+                    logger.warning("execCommand failed for %d chars: %s", len(text), e)
 
-            # Fallback: execCommand
-            js = f"""
-            (() => {{
-                const el = document.querySelector({json.dumps(selector)});
-                if (!el) return false;
-                el.focus();
-                // Use textContent, not innerHTML: Gemini enforces Trusted Types CSP
-                // which blocks innerHTML assignment. textContent is unrestricted.
-                el.textContent = '';
-                document.execCommand('insertText', false, {escaped_text});
-                el.dispatchEvent(new Event('input', {{bubbles: true}}));
-                return true;
-            }})()
-            """
+            # ── Large text: store in JS variable via chunks, then insert ──
             try:
-                return bool(self.evaluate_js(js))
+                return self._insert_large_text(selector, text)
             except Exception as e:
-                logger.error("Both CDP and execCommand failed: %s", e)
+                logger.error("Large text insertion failed: %s", e)
                 return False
         else:
             # Standard textarea/input
@@ -494,6 +492,86 @@ class CDPConnection:
             except Exception as e:
                 logger.error("Failed to set textarea value: %s", e)
                 return False
+
+    def _insert_large_text(self, selector: str, text: str) -> bool:
+        """Insert large text into a contenteditable element efficiently.
+
+        Strategy: upload text to the page in chunks via a JS global variable,
+        then use a synthetic clipboard paste event to insert it all at once.
+        This avoids Quill re-rendering per-chunk (which freezes the page).
+        """
+        import time as _time
+
+        # Phase 1: Upload text to page in 50KB JS-safe chunks
+        UPLOAD_CHUNK = 50_000
+        total = len(text)
+
+        # Initialize the accumulator
+        self.evaluate_js("window.__cdp_bulk_text = '';")
+
+        sent = 0
+        chunk_idx = 0
+        while sent < total:
+            chunk = text[sent:sent + UPLOAD_CHUNK]
+            escaped_chunk = json.dumps(chunk)
+            self.evaluate_js(f"window.__cdp_bulk_text += {escaped_chunk};")
+            sent += len(chunk)
+            chunk_idx += 1
+            if chunk_idx % 5 == 0:
+                _time.sleep(0.05)  # Breathe every 5 chunks
+
+        # Verify upload
+        uploaded_len = self.evaluate_js("window.__cdp_bulk_text.length")
+        if uploaded_len != total:
+            logger.error("Upload mismatch: expected %d, got %s", total, uploaded_len)
+            self.evaluate_js("delete window.__cdp_bulk_text;")
+            return False
+
+        logger.info("Uploaded %d chars to page in %d chunks", total, chunk_idx)
+
+        # Phase 2: Insert using execCommand which triggers Quill's
+        # mutation observer and Angular's model binding.
+        paste_js = f"""
+        (() => {{
+            const el = document.querySelector({json.dumps(selector)});
+            if (!el) return 'no_element';
+            el.focus();
+
+            const text = window.__cdp_bulk_text;
+            delete window.__cdp_bulk_text;
+
+            // execCommand: triggers Quill mutation observer + Angular binding
+            document.execCommand('selectAll');
+            const ok = document.execCommand('insertText', false, text);
+            if (ok && el.textContent.length > 100) return 'execCommand';
+
+            // Fallback: Quill API (send button may not work — Angular bypass)
+            const quillContainer = el.closest('.ql-container');
+            if (quillContainer && quillContainer.__quill) {{
+                const quill = quillContainer.__quill;
+                const len = quill.getLength();
+                if (len > 1) quill.deleteText(0, len);
+                quill.insertText(0, text, 'user');
+                quill.update('user');
+                el.classList.remove('ql-blank');
+                el.dispatchEvent(new Event('input', {{bubbles: true}}));
+                return 'quill_api';
+            }}
+
+            // Last resort: direct textContent
+            el.textContent = text;
+            el.dispatchEvent(new Event('input', {{bubbles: true}}));
+            return 'textContent';
+        }})()
+        """
+        result = self.evaluate_js(paste_js)
+        logger.info("Large text insertion method: %s (%d chars)", result, total)
+
+        if result == 'no_element':
+            return False
+
+        _time.sleep(0.3)  # Let the editor settle
+        return True
 
     def press_enter(self) -> bool:
         """Simulate pressing Enter on the focused element."""
@@ -903,8 +981,10 @@ class CDPChatAutomation:
 
             # Decision: Are we done?
             if new_response_detected and current_text != initial_text:
-                # New response appeared and text is different from before
-                if not has_loading and not has_stop and stable_count >= STABLE_THRESHOLD:
+                # New response appeared and text is different from before.
+                # Only loading indicator blocks — stop button is ignored
+                # because some sites (Gemini) keep it visible after completion.
+                if not has_loading and stable_count >= STABLE_THRESHOLD:
                     logger.info(
                         "%s finished generating (%.1fs, %d chars)",
                         self._profile_name, elapsed, len(current_text)
@@ -929,7 +1009,7 @@ class CDPChatAutomation:
         When navigating to a fresh chat page, selectors may match sidebar
         elements (chat history, menu items) instead of actual responses.
         """
-        if not text or len(text.strip()) < 20:
+        if not text or len(text.strip()) < 3:
             return True
 
         # Sidebar hallmarks: lots of short lines, menu keywords
@@ -938,9 +1018,10 @@ class CDPChatAutomation:
             "Use microphone", "Fullscreen", "Submit",
             "Ctrl+Shift+K", "Ctrl+Shift+O",
             "Learning coach", "Productivity planner",
+            "Meet Gemini", "your personal AI assistant",
         ]
         marker_count = sum(1 for m in sidebar_markers if m in text)
-        if marker_count >= 3:
+        if marker_count >= 2:
             return True
 
         # If it's mostly short fragments joined together (sidebar chat titles)
@@ -1019,22 +1100,34 @@ class CDPChatAutomation:
         return self.read_last_response()
 
     def _check_loading(self) -> bool:
-        """Check if any loading indicator is present."""
+        """Check if any VISIBLE loading indicator is present.
+
+        Uses offsetParent + offsetWidth to exclude hidden/zero-size elements
+        (e.g. Gemini keeps a hidden mat-progress-spinner in the DOM always).
+        """
         if not self._sel.loading_selector:
             return False
         for selector in self._sel.loading_selector.split(","):
             selector = selector.strip()
-            if self._conn.find_element(selector):
+            visible = self._conn.evaluate_js(
+                f"(() => {{ const el = document.querySelector({json.dumps(selector)}); "
+                f"return el ? (el.offsetParent !== null && el.offsetWidth > 0) : false; }})()"
+            )
+            if visible:
                 return True
         return False
 
     def _check_stop_button(self) -> bool:
-        """Check if a stop/cancel generation button is present."""
+        """Check if a VISIBLE stop/cancel generation button is present."""
         if not self._sel.stop_button_selector:
             return False
         for selector in self._sel.stop_button_selector.split(","):
             selector = selector.strip()
-            if self._conn.find_element(selector):
+            visible = self._conn.evaluate_js(
+                f"(() => {{ const el = document.querySelector({json.dumps(selector)}); "
+                f"return el ? (el.offsetParent !== null && el.offsetWidth > 0) : false; }})()"
+            )
+            if visible:
                 return True
         return False
 

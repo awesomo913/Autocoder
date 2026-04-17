@@ -450,14 +450,44 @@ class BroadcastController:
         else:
             self._file_context = ""
 
-        # Engineer the initial prompt (include file context)
-        file_ctx = self._file_context
-        task_with_files = config.task
-        if file_ctx:
-            task_with_files = f"{config.task}\n\n{file_ctx}"
+        # Engineer the initial prompt with embedded file context.
+        # Multi-turn file upload is broken on Gemini (Angular state gets
+        # stuck after first send), so we embed as much file context as
+        # possible directly in the initial prompt. ~25K of file context
+        # fits within Gemini's ~32K input limit alongside the task prompt.
+        MAX_EMBEDDED_CONTEXT = 25_000
+        embedded_context = ""
+        if self._file_context:
+            if len(self._file_context) <= MAX_EMBEDDED_CONTEXT:
+                embedded_context = self._file_context
+            else:
+                # Truncate at a file boundary (look for separator lines)
+                truncated = self._file_context[:MAX_EMBEDDED_CONTEXT]
+                # Find the last complete file boundary
+                for sep in ["═══", "───", "---", "\n\n"]:
+                    last_sep = truncated.rfind(sep)
+                    if last_sep > MAX_EMBEDDED_CONTEXT * 0.5:
+                        truncated = truncated[:last_sep]
+                        break
+                total_files = self._file_context.count("═══") or self._file_context.count("───") or "?"
+                embedded_context = (
+                    truncated + "\n\n"
+                    f"[NOTE: Reference files truncated to fit input limit. "
+                    f"Showing ~{len(truncated)//1000}K of {len(self._file_context)//1000}K total. "
+                    f"Focus on the files above for implementation.]"
+                )
+                logger.info("File context truncated: %d -> %d chars",
+                            len(self._file_context), len(embedded_context))
+
+        task_with_context = config.task
+        if embedded_context:
+            task_with_context = (
+                f"REFERENCE FILES:\n{embedded_context}\n\n"
+                f"TASK:\n{config.task}"
+            )
 
         engineered = engineer_prompt(
-            task=task_with_files,
+            task=task_with_context,
             build_target=config.build_target,
             enhancements=config.enhancements,
             context=config.context,
@@ -813,6 +843,79 @@ class BroadcastController:
             )
 
         return "REFERENCE FILES (use as context, follow existing patterns):\n\n" + "\n\n".join(sections)
+
+    def _send_file_context_messages(
+        self, session, sid: str, ai_name: str,
+    ) -> None:
+        """Send reference file context as pre-messages before the task prompt.
+
+        AI web UIs have input limits (~30K chars for Gemini). Instead of
+        embedding 256K of files in one prompt, we split them into chunks
+        and send each as a separate message. The AI accumulates context
+        across the conversation.
+
+        Each chunk gets a header like "Reference files (part 1/4)" and we
+        wait for the AI to acknowledge before sending the next chunk.
+        """
+        MAX_CHUNK = 25_000  # Stay well under Gemini's ~32K limit
+        file_ctx = self._file_context
+        total_len = len(file_ctx)
+
+        if total_len <= MAX_CHUNK:
+            # Small enough for one message
+            chunks = [file_ctx]
+        else:
+            # Split on file boundaries (look for "═══" separators or "---" lines)
+            # to avoid cutting mid-file
+            chunks = []
+            current_chunk = ""
+            for line in file_ctx.split("\n"):
+                if len(current_chunk) + len(line) + 1 > MAX_CHUNK and current_chunk:
+                    chunks.append(current_chunk)
+                    current_chunk = line + "\n"
+                else:
+                    current_chunk += line + "\n"
+            if current_chunk.strip():
+                chunks.append(current_chunk)
+
+        num_chunks = len(chunks)
+        logger.info("[%s] Sending %d file context chunks (%d chars total)",
+                    ai_name, num_chunks, total_len)
+
+        for i, chunk in enumerate(chunks):
+            if self._stop_event.is_set():
+                return
+
+            header = (
+                f"REFERENCE FILES (part {i + 1}/{num_chunks}) — "
+                f"Read and remember these. I will send the task prompt after "
+                f"all parts are uploaded.\n\n"
+            )
+            prompt = header + chunk
+
+            if self._on_output:
+                self._on_output(
+                    sid, "system",
+                    f"[{ai_name}] Uploading reference files "
+                    f"({i + 1}/{num_chunks}, {len(chunk)} chars)...\n"
+                )
+
+            try:
+                session.client.generate(
+                    prompt=prompt,
+                    on_progress=lambda t, s=sid: None,  # Suppress progress for context msgs
+                )
+                logger.info("[%s] File context chunk %d/%d sent (%d chars)",
+                            ai_name, i + 1, num_chunks, len(chunk))
+            except Exception as e:
+                logger.warning("[%s] File context chunk %d failed: %s — continuing",
+                               ai_name, i + 1, e)
+
+        if self._on_output:
+            self._on_output(
+                sid, "system",
+                f"[{ai_name}] All reference files uploaded. Sending task prompt...\n"
+            )
 
     def _build_context_prompt(self, directive: str, codebase: str,
                               file_context: str = "") -> str:
@@ -1941,6 +2044,11 @@ class BroadcastController:
         consecutive_errors = 0   # Consecutive generate() exceptions
 
         try:
+            # File context is now embedded in the initial prompt (truncated
+            # to ~25K chars) rather than sent as multi-turn pre-messages.
+            # Multi-turn is broken on Gemini: Angular's streaming state gets
+            # stuck after the first send, preventing all subsequent messages.
+
             # ── Iteration 0: Initial build with engineered prompt ────
             if self._stop_event.is_set():
                 return
@@ -2023,10 +2131,14 @@ class BroadcastController:
                         selected_focuses=selected,
                     )
 
-                    # Build the FULL prompt: directive + current codebase + files
+                    # Build the FULL prompt: directive + current codebase
+                    # Note: file context is only included in the initial prompt
+                    # (iteration 0). Subsequent iterations get the task directive
+                    # + current codebase only — this keeps prompts within Gemini's
+                    # ~30K input limit and avoids redundant context.
                     full_prompt = self._build_context_prompt(
                         improvement_directive, current_codebase,
-                        file_context=self._file_context,
+                        file_context="",
                     )
 
                     # Perfection Loop: track cycle progress
@@ -2044,6 +2156,17 @@ class BroadcastController:
                             f"(feeding {len(current_codebase)} chars of code)\n"
                             f"{'-'*40}\n"
                         )
+
+                # Fresh conversation for each iteration — Gemini's Angular
+                # state gets stuck after each send (button stays "Stop
+                # response"). We embed the full codebase in every prompt,
+                # so conversation history isn't needed.
+                try:
+                    session.client.new_conversation()
+                    time.sleep(1)
+                except Exception as e:
+                    logger.warning("[%s] new_conversation() before iter %d: %s",
+                                   ai_name, iteration + 1, e)
 
                 try:
                     result = session.client.generate(
@@ -2359,9 +2482,10 @@ class BroadcastController:
                         selected_focuses=selected,
                     )
 
+                    # File context only on initial prompt, not iterations
                     full_prompt = self._build_context_prompt(
                         improvement_directive, current_codebase,
-                        file_context=self._file_context,
+                        file_context="",
                     )
 
                     if config.perfection_loop and selected:
@@ -2378,6 +2502,14 @@ class BroadcastController:
                             f"(feeding {len(current_codebase)} chars of code)\n"
                             f"{'-'*40}\n"
                         )
+
+                # Fresh conversation per iteration (Gemini button state fix)
+                try:
+                    session.client.new_conversation()
+                    time.sleep(1)
+                except Exception as e:
+                    logger.warning("[%s] new_conversation() before resume iter %d: %s",
+                                   ai_name, iteration + 1, e)
 
                 try:
                     result = session.client.generate(

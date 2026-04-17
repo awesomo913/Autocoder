@@ -376,8 +376,11 @@ class UniversalBrowserClient:
                     self._profile.name, attempt + 1, self.MAX_RETRIES, e
                 )
                 if attempt < self.MAX_RETRIES - 1:
-                    # Try reconnecting CDP
+                    # Try reconnecting CDP — must release claimed URL first
+                    old_ws_url = self._cdp.connection._ws_url
                     self._cdp.connection.disconnect()
+                    from gemini_coder_web.cdp_client import release_ws_url
+                    release_ws_url(old_ws_url)
                     time.sleep(self.BASE_DELAY * (2 ** attempt))
                     if not self._try_configure_cdp():
                         logger.warning("CDP reconnect failed, will fall back to pyautogui")
