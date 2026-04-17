@@ -61,6 +61,86 @@ CORNER_LABELS = {
 }
 
 
+class Tooltip:
+    """Hover-activated tooltip for any tkinter/CTk widget.
+
+    Usage:  Tooltip(my_widget, "Text to show on hover")
+
+    Shows a small borderless popup near the cursor after a short delay.
+    Wraps text at a reasonable width. Self-destructs on leave.
+    """
+
+    _OPEN_DELAY_MS = 400     # How long to hover before showing
+    _WRAP_PIXELS = 360       # Wrap long descriptions
+
+    def __init__(self, widget, text: str, *,
+                 bg: str = "#1f2937", fg: str = "#f9fafb") -> None:
+        self._widget = widget
+        self._text = text
+        self._bg = bg
+        self._fg = fg
+        self._tip: ctk.CTkToplevel | None = None
+        self._after_id: str | None = None
+        widget.bind("<Enter>", self._on_enter, add="+")
+        widget.bind("<Leave>", self._on_leave, add="+")
+        widget.bind("<ButtonPress>", self._on_leave, add="+")
+
+    def _on_enter(self, _event=None) -> None:
+        self._cancel_pending()
+        self._after_id = self._widget.after(self._OPEN_DELAY_MS, self._show)
+
+    def _on_leave(self, _event=None) -> None:
+        self._cancel_pending()
+        self._hide()
+
+    def _cancel_pending(self) -> None:
+        if self._after_id is not None:
+            try:
+                self._widget.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
+
+    def _show(self) -> None:
+        if self._tip is not None or not self._text:
+            return
+        try:
+            x = self._widget.winfo_rootx() + 20
+            y = self._widget.winfo_rooty() + self._widget.winfo_height() + 4
+            self._tip = ctk.CTkToplevel(self._widget)
+            self._tip.overrideredirect(True)
+            self._tip.attributes("-topmost", True)
+            self._tip.configure(fg_color=self._bg)
+            label = ctk.CTkLabel(
+                self._tip, text=self._text,
+                font=("Segoe UI", 10),
+                text_color=self._fg,
+                fg_color=self._bg,
+                wraplength=self._WRAP_PIXELS,
+                justify="left",
+                padx=8, pady=6,
+            )
+            label.pack()
+            self._tip.update_idletasks()
+            # Clamp to screen so it doesn't fall off the right edge
+            sw = self._tip.winfo_screenwidth()
+            tw = self._tip.winfo_reqwidth()
+            if x + tw > sw - 8:
+                x = max(8, sw - tw - 8)
+            self._tip.geometry(f"+{x}+{y}")
+        except Exception:
+            # Tooltip is a nice-to-have — never break the app
+            self._tip = None
+
+    def _hide(self) -> None:
+        if self._tip is not None:
+            try:
+                self._tip.destroy()
+            except Exception:
+                pass
+            self._tip = None
+
+
 class SessionCard(ctk.CTkFrame):
     """UI card for one AI session slot (one corner of the screen)."""
 
@@ -816,6 +896,9 @@ class GeminiCoderWebApp(GeminiCoderApp):
                 corner_radius=4,
             )
             cb.grid(row=row_idx, column=col_idx, sticky="w", padx=(0, 12), pady=2)
+            # Hover tooltip shows the full description so a coder knows
+            # exactly what this focus will do before checking the box.
+            Tooltip(cb, info["description"])
 
         # Perfection Loop toggle
         perf_row = ctk.CTkFrame(bc_card, fg_color="transparent")

@@ -527,25 +527,524 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
             "Output the ENTIRE updated codebase. No placeholders."
         ),
     },
+    # ── Focuses 17-32: Cursor-level depth for apps, games, and systems ──
+    "plugin_system": {
+        "label": "Plugin / Extension System",
+        "description": "Add hook points, plugin discovery, dynamic load, version-compat shim",
+        "prompt": (
+            "TURN THIS CODEBASE INTO A PLATFORM with a real plugin system.\n\n"
+            "1. HOOK INVENTORY: Identify every place a user might want to "
+            "customize behavior. Define named hook points (events, filters, "
+            "transformers, validators) with clear contracts.\n"
+            "2. PLUGIN BASE CLASS / PROTOCOL: Define `class Plugin` (or a "
+            "`Protocol`) that every plugin implements. Include metadata fields "
+            "(name, version, required_core_version, dependencies).\n"
+            "3. DISCOVERY: Auto-discover plugins from a `plugins/` directory, "
+            "entry points in installed packages, or explicit registration. "
+            "Support enable/disable without code changes.\n"
+            "4. DYNAMIC DISPATCH: A `PluginManager` builds an O(1) map from "
+            "hook name → ordered list of registered callbacks. Plugins can "
+            "declare priority for ordering.\n"
+            "5. VERSION COMPAT: Every plugin declares the core API version "
+            "it needs. The loader refuses to load mismatched plugins with a "
+            "clear error. Add a deprecation path for retired hooks.\n"
+            "6. SANDBOXING: Catch plugin exceptions — one bad plugin never "
+            "crashes the host. Log the failure with plugin name + hook.\n"
+            "7. CONFIG PER PLUGIN: Each plugin can declare its own config "
+            "schema; the host validates + passes it on activation.\n"
+            "8. LIFECYCLE: `on_load`, `on_enable`, `on_disable`, `on_unload` "
+            "hooks. Unload must release resources cleanly.\n\n"
+            "Ship at least one example plugin demonstrating the API.\n"
+            "Apply to the CURRENT CODEBASE below. Output the ENTIRE codebase."
+        ),
+    },
+    "integration_layer": {
+        "label": "External Integrations",
+        "description": "Clean adapter layer for external APIs/SDKs/webhooks with retries + mocks",
+        "prompt": (
+            "BUILD AN INTEGRATION LAYER for external services in this codebase.\n\n"
+            "1. ADAPTER PATTERN: Every external dependency (HTTP API, SDK, "
+            "database, message broker) gets a dedicated `Adapter` class with "
+            "a clean interface. Core code talks to the adapter, not the raw "
+            "dependency. This lets you swap implementations without touching "
+            "business logic.\n"
+            "2. EXPLICIT CONTRACTS: Each adapter exposes a typed interface "
+            "(Protocol / ABC) with clear method signatures. Input/output "
+            "types are domain objects, not vendor SDK types.\n"
+            "3. RETRY + TIMEOUT: Every outbound call gets a retry policy "
+            "(exponential backoff, jitter, max attempts), a per-call timeout, "
+            "and a circuit breaker for repeatedly-failing endpoints.\n"
+            "4. OBSERVABILITY: Log every outbound call (method, endpoint, "
+            "status, latency) at DEBUG, and every failure at WARNING with "
+            "the request body (secrets redacted).\n"
+            "5. MOCK FOR TESTS: Provide a `FakeAdapter` or `MockAdapter` "
+            "for every real adapter, so tests run without hitting the network.\n"
+            "6. RATE LIMITING / BACKPRESSURE: Respect upstream quotas. Add a "
+            "token bucket if needed.\n"
+            "7. WEBHOOK HANDLERS (if applicable): Verify signatures, "
+            "deduplicate by event ID, process idempotently.\n"
+            "8. CONFIGURATION: Endpoints, API keys, timeouts live in config — "
+            "never hardcoded. Different environments get different bases.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output the ENTIRE codebase."
+        ),
+    },
+    "memory_optimization": {
+        "label": "Memory Optimization",
+        "description": "__slots__, object pools, weak refs, leak hunting, lazy loading, streaming",
+        "prompt": (
+            "REDUCE MEMORY FOOTPRINT and eliminate leaks in this codebase.\n\n"
+            "1. HIGH-COUNT CLASSES: Any class instantiated >1000 times "
+            "gets `__slots__` — typically halves per-instance memory by "
+            "eliminating `__dict__`.\n"
+            "2. OBJECT POOLING: For short-lived objects created in hot "
+            "loops (events, vectors, tokens), add a pool so the GC doesn't "
+            "churn. Clear state on return-to-pool.\n"
+            "3. WEAK REFS: Break reference cycles (parent ↔ child, "
+            "observer ↔ subject) with `weakref.proxy` or `WeakValueDictionary` "
+            "so the GC can actually free them.\n"
+            "4. STREAMING OVER LOADING: Replace `data = f.read()` + parse "
+            "with streaming parsers where the data is large. Use generators "
+            "for transforms over lists.\n"
+            "5. LAZY ATTRIBUTES: Heavy computed properties become "
+            "`@cached_property`. Huge configs load lazily on first access.\n"
+            "6. CACHE AUDIT: Every cache has a bound (size or TTL). No "
+            "unbounded `dict` growth. Use `functools.lru_cache(maxsize=N)`, "
+            "not `maxsize=None`.\n"
+            "7. INTERN STRINGS: Repeated keys / enum-like strings get "
+            "`sys.intern`'d to dedupe.\n"
+            "8. LEAK DETECTION: Add a `memory_report()` helper that uses "
+            "`tracemalloc` to show the top-10 allocations so regressions "
+            "are easy to spot.\n\n"
+            "Add `# mem:` inline comments next to each change explaining the "
+            "saving. Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "network_resilience": {
+        "label": "Network Resilience",
+        "description": "Connection pooling, TLS, proper timeouts, retries, compression, keepalive",
+        "prompt": (
+            "HARDEN NETWORK I/O throughout this codebase.\n\n"
+            "1. CONNECTION POOLING: Replace per-call `socket`/`urllib` with "
+            "a session/pool (e.g. `httpx.Client`, `aiohttp.ClientSession`, "
+            "`requests.Session`). One pool per upstream, configurable max "
+            "conn count. Close on shutdown.\n"
+            "2. TLS: HTTPS by default. Verify certs (no `verify=False`). "
+            "Use the system CA bundle. Pin hostname via SNI.\n"
+            "3. LAYERED TIMEOUTS: Set (connect, read, write, total) "
+            "timeouts separately. No defaults-of-None.\n"
+            "4. RETRIES: Idempotent operations retry on connect-errors and "
+            "5xx; non-idempotent (POST) only retry with an idempotency key. "
+            "Use exponential backoff + jitter, max 3 retries.\n"
+            "5. COMPRESSION: Enable `gzip`/`br` for text bodies; decompress "
+            "transparently. Skip for already-compressed types.\n"
+            "6. KEEPALIVE: Reuse connections within a pool. Add periodic "
+            "keepalive on long-lived connections. Close half-open sockets.\n"
+            "7. STREAMING RESPONSES: Never `.read()` huge bodies into "
+            "memory — iterate chunks. Close streams in `finally` or use a "
+            "context manager.\n"
+            "8. DIAGNOSABILITY: Every request logs (method, url, status, "
+            "duration, bytes); errors log the response body (truncated + "
+            "secrets redacted).\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "caching_strategy": {
+        "label": "Caching Strategy",
+        "description": "Multi-tier cache (memory/disk), TTL, invalidation, stampede protection",
+        "prompt": (
+            "INTRODUCE A PROPER CACHING STRATEGY to this codebase.\n\n"
+            "1. CLASSIFY DATA: For each expensive derived value, decide "
+            "(a) is it cacheable? (b) per-process or shared? (c) how stale "
+            "is acceptable? Document the choice inline.\n"
+            "2. TIERS: Where appropriate, layer (i) in-process LRU (fastest), "
+            "(ii) on-disk (shared across runs), (iii) distributed "
+            "(multi-process/host). Each tier falls through to the next.\n"
+            "3. KEY DESIGN: Cache keys are deterministic, canonical strings "
+            "that include every input that affects the output (version + "
+            "inputs). Never cache across versions of your code without a "
+            "namespace bump.\n"
+            "4. TTL: Every entry has an explicit expiry. Short TTL for data "
+            "that can be stale; long TTL + explicit invalidate for heavy-to-"
+            "compute immutable data.\n"
+            "5. INVALIDATION: Every mutation that affects cached data calls "
+            "an explicit invalidation. Prefer `cache.invalidate(pattern)` "
+            "over clearing everything.\n"
+            "6. STAMPEDE PROTECTION: Use a lock or `singleflight` so N "
+            "concurrent misses result in 1 backend call, not N.\n"
+            "7. NEGATIVE CACHING: Cache 'not found' results (with a short "
+            "TTL) so repeated failing lookups don't thrash the backend.\n"
+            "8. METRICS: Expose hit_rate, miss_rate, evictions per cache. "
+            "If hit_rate <50%, the cache may be miswired or key-unstable.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "accessibility": {
+        "label": "Accessibility (a11y)",
+        "description": "WCAG AA: keyboard nav, screen readers, color contrast, focus indicators",
+        "prompt": (
+            "MAKE THIS APP ACCESSIBLE to users with disabilities (WCAG 2.1 AA).\n\n"
+            "1. KEYBOARD NAVIGATION: Every interactive control reachable "
+            "via Tab. Visible focus indicator. Logical tab order. "
+            "Keyboard shortcuts for common actions (with a '?' help overlay).\n"
+            "2. SCREEN READER SUPPORT: Every UI element has an accessible "
+            "name (aria-label, alt text, or semantic tag). Dynamic updates "
+            "announce via `aria-live` regions. Icon-only buttons get labels.\n"
+            "3. COLOR CONTRAST: Text-on-background meets 4.5:1 (normal) "
+            "or 3:1 (large). Don't convey state by color alone — add icon "
+            "or text.\n"
+            "4. TEXT SCALING: Layout survives 200% zoom. No fixed pixel "
+            "heights for text containers.\n"
+            "5. MOTION: Respect `prefers-reduced-motion`. Animations can "
+            "be disabled. No auto-playing media.\n"
+            "6. FORM FEEDBACK: Each input has a visible label (not just "
+            "placeholder). Errors are announced and linked to the field via "
+            "`aria-describedby`. Required fields marked.\n"
+            "7. IMAGES: All informative images have alt text; decorative "
+            "images have `alt=''`.\n"
+            "8. LANDMARKS: Use `<main>`, `<nav>`, `<header>`, `<footer>` "
+            "(or their Tk/Qt equivalents) so screen readers can jump "
+            "between regions.\n\n"
+            "Add a `# a11y:` comment next to each accessibility change.\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "i18n_l10n": {
+        "label": "Internationalization (i18n/l10n)",
+        "description": "Extract strings, locale-aware dates/numbers, pluralization, RTL",
+        "prompt": (
+            "PREPARE THIS CODEBASE FOR MULTIPLE LOCALES.\n\n"
+            "1. STRING EXTRACTION: Every user-facing string moves out of "
+            "code into a translation table. Use `gettext` or a simple "
+            "`strings['en']['key']` dict. Keys are stable, descriptive "
+            "('btn.save' not 'str_023').\n"
+            "2. BUNDLED DEFAULT LOCALE: Ship with at least `en` fully "
+            "populated; add a stub `es` or `fr` showing the translation "
+            "workflow works end-to-end.\n"
+            "3. PLURAL FORMS: Use `ngettext` or an equivalent — English "
+            "has 2 plural forms but many languages have more.\n"
+            "4. DATES / NUMBERS / CURRENCY: Format via `babel` / "
+            "`locale.format` respecting the user's locale (never "
+            "`f'{date:%m/%d/%Y}'` with hardcoded order).\n"
+            "5. COLLATION: Sorting lists of user-visible strings uses a "
+            "locale-aware collator, not default `str` comparison.\n"
+            "6. BIDI / RTL: Layout works in RTL locales (Arabic, Hebrew). "
+            "Strings flow direction-aware; no hardcoded left/right.\n"
+            "7. MESSAGE INTERPOLATION: Use named placeholders "
+            "(`'{count} items'`) not positional — translators may reorder.\n"
+            "8. LOCALE SELECTION: Detect via env var / OS, allow user "
+            "override, persist across sessions.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "cli_ux": {
+        "label": "CLI UX Polish",
+        "description": "Rich help, colors, progress bars, prompts, tab completion, --dry-run",
+        "prompt": (
+            "MAKE THE CLI A JOY TO USE.\n\n"
+            "1. ARGPARSE / TYPER: Use proper subcommands for distinct "
+            "actions (`myapp run`, `myapp config`, `myapp debug`). Every "
+            "flag has `--long` + `-s` short form + a clear help string.\n"
+            "2. HELP QUALITY: `--help` shows examples. `myapp <subcmd> "
+            "--help` shows what that subcommand does. Epilogs for common "
+            "recipes.\n"
+            "3. COLOR + ICONS: Success = green check, warn = yellow, "
+            "error = red X. Respect `NO_COLOR` env var. Detect non-TTY "
+            "and disable colors automatically.\n"
+            "4. PROGRESS: Long operations show a progress bar (tqdm / "
+            "rich.progress) with ETA, rate, and counters — never silent.\n"
+            "5. INTERACTIVE PROMPTS: Where appropriate (destructive ops), "
+            "prompt for confirmation with a default. Allow `--yes` to skip.\n"
+            "6. --DRY-RUN: Anything destructive supports `--dry-run` to "
+            "preview without applying.\n"
+            "7. TAB COMPLETION: Generate shell completion scripts "
+            "(`myapp completion bash > ~/.bash_completion.d/myapp`).\n"
+            "8. ERROR EXIT CODES: Distinct non-zero codes for distinct "
+            "failures (`2=bad args`, `3=config error`, `4=network`, etc.). "
+            "Document in README.\n"
+            "9. INPUT RECEIVED VS INTERPRETED: On ambiguous input, echo "
+            "what the CLI understood so the user can correct.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "data_layer": {
+        "label": "Data Layer / Persistence",
+        "description": "DB schema, migrations, transactions, indexes, connection pool, DAL",
+        "prompt": (
+            "BUILD A SOLID DATA LAYER for this codebase.\n\n"
+            "1. SCHEMA DESIGN: Normalize tables to 3NF unless there's a "
+            "specific read-performance reason. Primary keys on every table. "
+            "Foreign keys enforced. Correct types (not TEXT for everything).\n"
+            "2. MIGRATIONS: Every schema change is a numbered, up/down "
+            "migration file. Never edit a past migration. Use alembic / "
+            "django-migrations / a simple home-grown migrator.\n"
+            "3. INDEXES: Every `WHERE`, `JOIN`, and `ORDER BY` column the "
+            "app actually queries gets an index. Composite indexes match "
+            "query order. Log queries >N ms to spot missing ones.\n"
+            "4. TRANSACTIONS: Multi-statement writes use a transaction "
+            "with clear commit/rollback. Nested ops use savepoints. "
+            "Explicit isolation level where it matters.\n"
+            "5. CONNECTION POOL: Shared pool sized to load. Connections "
+            "checked for liveness. No per-call connect/disconnect.\n"
+            "6. DAL (Data Access Layer): Each domain has a repository "
+            "class with typed methods (`get_user(id) -> User | None`). "
+            "Business logic never builds SQL strings.\n"
+            "7. SAFE QUERIES: ONLY parameterized queries. Never f-string "
+            "SQL. Use an ORM or a query builder.\n"
+            "8. SOFT DELETES / AUDIT: Where relevant, `deleted_at` + "
+            "`created_at`/`updated_at` columns. Never hard-delete by default.\n"
+            "9. SEED DATA: A `seed.py` populates fixtures for local dev "
+            "and tests.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "api_design": {
+        "label": "API Design & Contracts",
+        "description": "REST/GraphQL design, versioning, OpenAPI spec, schema validation",
+        "prompt": (
+            "DESIGN A CLEAN PUBLIC API for this codebase.\n\n"
+            "1. RESOURCE MODEL: Identify the nouns. Each resource has a "
+            "consistent URL shape (`/users/{id}/orders/{id}`). HTTP verbs "
+            "match intent (`GET` safe, `POST` create, `PUT` idempotent "
+            "replace, `PATCH` partial, `DELETE` remove).\n"
+            "2. INPUT SCHEMAS: Every endpoint validates its request via "
+            "`pydantic`/`dataclass`+`validate`/JSON Schema. Reject unknown "
+            "fields when strict. Return a structured 400 on validation "
+            "failure showing which field(s) + why.\n"
+            "3. OUTPUT SCHEMAS: Responses have a stable, documented shape. "
+            "Use envelope or direct-object consistently. Include pagination "
+            "metadata for list endpoints.\n"
+            "4. ERRORS: Every error response has `{code, message, detail, "
+            "request_id}`. `code` is a machine-readable string like "
+            "'user.not_found'. `message` is human-readable.\n"
+            "5. VERSIONING: Choose `/v1/` prefix OR `Accept: "
+            "application/vnd.app.v1+json`. Every breaking change bumps "
+            "version. Maintain v1 until users migrate.\n"
+            "6. OPENAPI SPEC: Auto-generate or hand-write an OpenAPI 3.x "
+            "spec. Serve at `/openapi.json`. Add a Swagger UI at `/docs`.\n"
+            "7. AUTHN/AUTHZ: Consistent scheme (Bearer JWT / API key / "
+            "cookie). Every endpoint states its required scope(s).\n"
+            "8. RATE LIMITING: Per-user and per-endpoint. Return `429` "
+            "with `Retry-After`.\n"
+            "9. IDEMPOTENCY: Non-safe methods accept `Idempotency-Key` "
+            "header; same key + body = same response.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "state_management": {
+        "label": "State Management",
+        "description": "Immutable state, event sourcing, undo/redo, pub-sub, single source of truth",
+        "prompt": (
+            "REFACTOR STATE MANAGEMENT into a disciplined, debuggable model.\n\n"
+            "1. SINGLE SOURCE OF TRUTH: All mutable state lives in one "
+            "`AppState` dataclass (or a small set of them). No scattered "
+            "globals, no ad-hoc class attributes drifting out of sync.\n"
+            "2. IMMUTABLE BY DEFAULT: Use `@dataclass(frozen=True)` or a "
+            "similar immutable model. Updates return a new state; mutation "
+            "via `dataclasses.replace(state, field=new)`.\n"
+            "3. EVENTS / REDUCERS: Every state change is an explicit "
+            "`Event` (or action) dispatched through a reducer: "
+            "`new_state = reduce(state, event)`. One reducer per aggregate.\n"
+            "4. EVENT LOG: Keep the last N events so you can replay, "
+            "debug, or implement undo/redo trivially.\n"
+            "5. UNDO / REDO: With an event log + pure reducers, add "
+            "`undo()` / `redo()` almost free.\n"
+            "6. SUBSCRIBERS: UI / external listeners subscribe to state "
+            "changes. No polling — push updates.\n"
+            "7. SELECTORS: Derived values (e.g. `visible_items = [...]`) "
+            "go through memoized selectors so recompute is cheap.\n"
+            "8. TIME-TRAVEL DEBUGGING: A debug mode that logs every event "
+            "with a timestamp and lets you replay to any point.\n"
+            "9. PERSISTENCE: State can be snapshotted to disk and "
+            "restored verbatim — useful for crash recovery + tests.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "game_loop": {
+        "label": "Game Loop / Real-Time",
+        "description": "Fixed timestep, interpolation, frame budget, input lag minimization",
+        "prompt": (
+            "BUILD A PROPER REAL-TIME LOOP for this codebase.\n\n"
+            "1. FIXED TIMESTEP: Simulation advances in fixed-dt ticks "
+            "(e.g. 60 Hz). Decouple render from sim: render as often as "
+            "the hardware allows; sim ticks at a constant rate.\n"
+            "2. ACCUMULATOR: Standard pattern — `accumulator += frame_time; "
+            "while accumulator >= dt: sim.step(dt); accumulator -= dt`. "
+            "Leftover accumulator drives interpolation at render time.\n"
+            "3. INTERPOLATION: Between sim ticks, render interpolates "
+            "positions: `render_pos = prev_pos * (1-alpha) + cur_pos * "
+            "alpha`. Smooth motion independent of sim rate.\n"
+            "4. FRAME BUDGET: Tick has a budget (e.g. 16ms for 60fps). "
+            "Profile what eats it. Cap variable-cost work (physics, AI).\n"
+            "5. INPUT LAG: Sample input as late as possible before sim "
+            "tick. Skip one-frame of interpolation on input to feel snappy.\n"
+            "6. SPIRAL-OF-DEATH GUARD: If `frame_time` exceeds a cap "
+            "(e.g. 250ms), clamp accumulator so the sim doesn't run "
+            "1000 catch-up ticks.\n"
+            "7. DETERMINISM: Sim is deterministic given the same input "
+            "stream and seed — critical for replays, multiplayer, testing.\n"
+            "8. PAUSE / SLOW-MO: Tick rate can be scaled or frozen via "
+            "a `time_scale` multiplier applied to `dt`.\n"
+            "9. PROFILER HOOKS: Instrument tick phases (input, sim, "
+            "render, present) with per-phase timing displayed as an overlay.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "ai_behavior": {
+        "label": "AI / Behavior",
+        "description": "State machines, behavior trees, utility AI, decision making, planners",
+        "prompt": (
+            "DESIGN ROBUST AUTONOMOUS BEHAVIOR for this codebase.\n\n"
+            "1. PICK THE MODEL: Choose one primary style and commit — a "
+            "finite state machine (FSM) for few discrete states, a "
+            "behavior tree (BT) for composable reactive logic, or utility "
+            "AI (score-and-pick) for continuous trade-offs.\n"
+            "2. STATES / NODES: Each state/node has a clear name, an "
+            "`enter`, `tick`, and `exit`. No state dumps all its logic "
+            "in one blob.\n"
+            "3. TRANSITIONS: Explicit and named. Draw them in a comment "
+            "as an ASCII diagram at the top of the file. Reject "
+            "ambiguous transitions at design time.\n"
+            "4. PERCEPTION LAYER: Sensors gather world state once per "
+            "tick into a `Blackboard`. Behavior reads from the "
+            "blackboard — never from raw globals — so it's testable.\n"
+            "5. ACTION LAYER: Actions are atomic (`MoveTo(x,y)`, "
+            "`PickBestMove()`), report `RUNNING/SUCCESS/FAILURE`, and "
+            "can be cancelled cleanly mid-execution.\n"
+            "6. INTERRUPTIBILITY: Every long-running behavior can be "
+            "interrupted by a higher-priority stimulus (damage, dialog, "
+            "stuck). No behavior holds the agent hostage.\n"
+            "7. DEBUGGABILITY: A live overlay shows current state + "
+            "recent transitions + blackboard values. Logs show every "
+            "decision with its reason.\n"
+            "8. TESTING: Replay recorded perception streams through the "
+            "behavior deterministically to regression-test decisions.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "save_system": {
+        "label": "Save System",
+        "description": "Checkpoints, autosave, multi-slot, versioned formats, corruption recovery",
+        "prompt": (
+            "BUILD A ROBUST SAVE SYSTEM for this codebase.\n\n"
+            "1. SERIALIZATION FORMAT: Pick one and document it. JSON for "
+            "debuggability, msgpack/protobuf for size/speed. Avoid pickle "
+            "unless trust boundary permits.\n"
+            "2. VERSIONED SCHEMA: Every save includes a `schema_version`. "
+            "Loader has an explicit migration table from v1→v2→v3. Never "
+            "load an unknown version without erroring.\n"
+            "3. ATOMIC WRITES: Write to `save.tmp`, fsync, then rename. "
+            "If the process crashes mid-write, the old save survives "
+            "intact.\n"
+            "4. CHECKPOINTS: Automatic save at well-defined moments "
+            "(level complete, pre-boss, map change). Manual save anytime "
+            "(unless in an unsafe state).\n"
+            "5. AUTOSAVE: Periodic autosave on a timer, to a rotating "
+            "slot so one bad autosave can't corrupt history.\n"
+            "6. MULTI-SLOT: User can pick between N save slots with "
+            "metadata preview (name, timestamp, play-time, location).\n"
+            "7. CORRUPTION RECOVERY: On load failure, fall back to the "
+            "most recent good save. Keep a .bak of the previous save.\n"
+            "8. SAVE-ANYWHERE vs CHECKPOINT-ONLY: Pick a policy and "
+            "honor it consistently. Don't mix.\n"
+            "9. CLOUD-SYNC PREP: Keep saves as self-contained files, "
+            "not SQLite dbs with side-car files — easier to sync.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "packaging": {
+        "label": "Packaging & Distribution",
+        "description": "pyproject.toml, entry points, PyPI-ready, Dockerfile, standalone binaries",
+        "prompt": (
+            "MAKE THIS CODEBASE DISTRIBUTABLE.\n\n"
+            "1. `pyproject.toml`: Fill in project name, version, "
+            "description, authors, license, Python constraint, runtime "
+            "deps, dev-deps, and classifiers. Follow PEP 621.\n"
+            "2. ENTRY POINTS: Define console scripts so users get a "
+            "`myapp` command on install (`[project.scripts]` table).\n"
+            "3. PINNED DEPS: Runtime deps use compatible version ranges "
+            "(`>=X.Y,<X+1`). Dev deps can be tighter. Include a "
+            "`requirements-lock.txt` for reproducible builds.\n"
+            "4. PACKAGE DATA: Non-Python files (templates, icons, data) "
+            "declared in `[tool.setuptools.package-data]` — otherwise they "
+            "won't ship.\n"
+            "5. BUILD BACKEND: `hatchling` or `setuptools` configured. "
+            "Output both wheel and sdist. `python -m build` works from "
+            "clean.\n"
+            "6. DOCKERFILE: Multi-stage build (builder → runtime). Non-"
+            "root user. Minimal base image. Pinned image digest. Health "
+            "check.\n"
+            "7. STANDALONE BINARY (optional): PyInstaller / Briefcase / "
+            "Nuitka spec for users who don't have Python. Document "
+            "platform matrix.\n"
+            "8. INSTALL DOCS: README has `pip install myapp` + Docker "
+            "one-liner + local-dev instructions.\n"
+            "9. CHANGELOG + SEMVER: `CHANGELOG.md` with a clear entry "
+            "per release; semver bumps match the change.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "ci_cd": {
+        "label": "CI/CD Pipeline",
+        "description": "GitHub Actions, pre-commit, test matrix, release automation, coverage gates",
+        "prompt": (
+            "AUTOMATE BUILD / TEST / RELEASE for this codebase.\n\n"
+            "1. CI ON EVERY PR: A GitHub Actions (or equivalent) workflow "
+            "that runs on push + PR: install deps, lint, type-check, "
+            "tests with coverage, build artifacts.\n"
+            "2. MATRIX BUILDS: Run against every supported Python version "
+            "(and OS if platform-specific) in parallel. Fail-fast on any.\n"
+            "3. LINT + FORMAT: `ruff check` + `black --check` + "
+            "`isort --check-only`. PR fails if not formatted. Pre-commit "
+            "hook locally mirrors CI.\n"
+            "4. TYPE CHECK: `mypy` (or `pyright`) with `--strict` on "
+            "new code; grandfather existing. Fail CI on new errors.\n"
+            "5. COVERAGE GATE: Tests must pass AND coverage ≥ threshold "
+            "(e.g. 80% for touched lines). Upload to codecov/similar.\n"
+            "6. SECURITY SCANS: `pip-audit` + `bandit` on every run. "
+            "Fail on high-severity CVEs.\n"
+            "7. RELEASE AUTOMATION: Tag-triggered workflow builds + "
+            "publishes to PyPI/registry + builds Docker image + creates "
+            "a GitHub Release with auto-generated notes.\n"
+            "8. CACHED DEPS: Cache pip/uv/poetry downloads between runs "
+            "so CI is fast.\n"
+            "9. ARTIFACTS: Every build uploads the wheel + sdist + "
+            "coverage report as artifacts for inspection.\n\n"
+            "Provide the .github/workflows/*.yml files inline + the "
+            "`.pre-commit-config.yaml`. Apply to the CURRENT CODEBASE. "
+            "Output ENTIRE codebase + the workflow files."
+        ),
+    },
 }
 
-# Default order for focus cycling — all 16 dimensions a coder might iterate on.
-# Ordered so early rounds do architecture/wiring/hardening (foundation work)
-# and later rounds do polish/tests/docs (once the foundation is solid).
+# Default order for focus cycling — 32 dimensions a coder iterates on for
+# Cursor-level apps, programs, and games. Early rounds = foundation work,
+# later rounds = polish / deployment / hygiene (once foundation is solid).
 FOCUS_ORDER = [
-    # Foundation & correctness
+    # Foundation & correctness (5)
     "deep_dive", "solid_functional", "pressure_test", "error_recovery",
-    # Capability expansion
+    "review_grade",
+    # Capability expansion (4)
     "extra_features", "explore_expand",
-    # Non-functional properties
-    "performance", "security", "concurrency",
-    # Observability & configurability
+    "plugin_system", "integration_layer",
+    # Non-functional properties (6)
+    "performance", "memory_optimization", "security",
+    "concurrency", "network_resilience", "caching_strategy",
+    # Data & APIs (3)
+    "data_layer", "api_design", "state_management",
+    # Observability & configurability (2)
     "logging_observability", "configuration",
-    # Presentation & shareability
+    # Presentation & UX (5)
     "beautiful_gui", "reference_images",
-    # Hygiene
-    "documentation", "test_suite", "review_grade",
+    "accessibility", "i18n_l10n", "cli_ux",
+    # Game & real-time (4)
+    "game_loop", "ai_behavior", "save_system", "asset_pipeline_placeholder",
+    # Hygiene (2)
+    "documentation", "test_suite",
+    # Deployment (2)
+    "packaging", "ci_cd",
 ]
+# Remove placeholder — asset_pipeline didn't ship in this pass
+FOCUS_ORDER = [k for k in FOCUS_ORDER if k in IMPROVEMENT_FOCUSES]
 
 # Default focuses when none are selected — small, broadly-applicable starter set
 DEFAULT_FOCUSES = ["extra_features", "pressure_test", "solid_functional", "review_grade"]
@@ -1220,23 +1719,42 @@ class BroadcastController:
             "solid_functional": ["required", "testing", "architecture", "ui"],
             "pressure_test": ["protections", "testing", "bug", "debug"],
             "error_recovery": ["protections", "bug", "gdb", "crash", "retry"],
+            "review_grade": ["architecture", "required", "roadmap", "testing"],
             # Capability expansion
             "extra_features": ["features", "required", "roadmap"],
             "explore_expand": ["roadmap", "architecture", "data", "expand"],
+            "plugin_system": ["reflex", "framework", "architecture", "extension"],
+            "integration_layer": ["gdb", "api", "protocol", "transport"],
             # Non-functional
             "performance": ["performance", "memory", "cache", "optimization"],
+            "memory_optimization": ["memory", "map", "cache", "performance"],
             "security": ["protections", "input", "validation", "auth"],
             "concurrency": ["reflex", "async", "thread", "timing"],
+            "network_resilience": ["gdb", "protocol", "transport", "retry"],
+            "caching_strategy": ["cache", "memory", "performance", "data"],
+            # Data & APIs
+            "data_layer": ["data", "memory", "map", "required"],
+            "api_design": ["api", "required", "architecture", "protocol"],
+            "state_management": ["architecture", "reflex", "ui", "framework"],
             # Observability & config
             "logging_observability": ["testing", "debug", "bug", "monitor"],
             "configuration": ["config", "env", "settings", "roadmap"],
-            # Presentation
+            # Presentation & UX
             "beautiful_gui": ["ui", "battle", "menu", "flow"],
             "reference_images": ["ui", "menu", "flow", "battle"],
+            "accessibility": ["ui", "menu", "flow"],
+            "i18n_l10n": ["ui", "menu", "flow"],
+            "cli_ux": ["config", "testing", "debug"],
+            # Game & real-time
+            "game_loop": ["reflex", "timing", "battle", "ui"],
+            "ai_behavior": ["reflex", "battle", "navigation", "ai"],
+            "save_system": ["data", "memory", "map", "gdb"],
             # Hygiene
             "documentation": ["readme", "architecture", "required"],
             "test_suite": ["testing", "debug", "protections", "required"],
-            "review_grade": ["architecture", "required", "roadmap", "testing"],
+            # Deployment
+            "packaging": ["readme", "config", "architecture"],
+            "ci_cd": ["testing", "debug", "protections"],
         }
 
         task_lower = task_prompt.lower()
