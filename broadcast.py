@@ -25,7 +25,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from gemini_coder.task_manager import CodingTask, TaskStatus
 from .auto_save import save_task_output
@@ -283,6 +283,12 @@ def engineer_improvement_prompt(
     Cycles through the user's selected improvement focuses so each round
     makes the code meaningfully better in a different dimension.
 
+    The task description is prepended to every focus directive so the AI
+    interprets generic focus prompts (e.g. "Add 2-3 features") through the
+    lens of the actual task. Without this, a focus that suggests "undo/redo,
+    keyboard shortcuts" gets applied to a headless backend and produces
+    nonsense or pushback instead of code.
+
     Returns (prompt_text, focus_label) tuple.
     """
     # Use selected focuses or fall back to defaults
@@ -296,9 +302,28 @@ def engineer_improvement_prompt(
     focus_key = focuses[idx]
     focus = IMPROVEMENT_FOCUSES[focus_key]
 
-    prompt = focus["prompt"]
+    # Trim task to stay within prompt budget — we only need enough to
+    # anchor the AI to the right domain.
+    task_snippet = task.strip()
+    if len(task_snippet) > 1_200:
+        task_snippet = task_snippet[:1_200].rstrip() + " …"
+
+    prompt_parts = []
     if ai_name:
-        prompt = f"[You are {ai_name}] {prompt}"
+        prompt_parts.append(f"[You are {ai_name}]")
+    prompt_parts.append(
+        f"TASK CONTEXT (what the overall project is):\n{task_snippet}\n"
+    )
+    prompt_parts.append(
+        "IMPROVEMENT DIRECTIVE FOR THIS ITERATION:\n"
+        "Apply the focus below to the current codebase WITHIN the domain "
+        "of the project described above. Skip any example from the focus "
+        "list that doesn't apply to this kind of codebase (e.g. skip GUI "
+        "suggestions for a headless script) — pick only items that make "
+        "genuine sense for this specific project."
+    )
+    prompt_parts.append(focus["prompt"])
+    prompt = "\n\n".join(prompt_parts)
 
     return prompt, focus["label"]
 
@@ -361,6 +386,7 @@ class BroadcastController:
         self._on_complete: Optional[Callable] = None
         self._file_context: str = ""  # Formatted attached file contents
         self._file_list: list[dict[str, str]] = []  # Raw file dicts for smart selection
+        self._chunks: list[dict[str, Any]] = []  # File → chunks cache for retrieval
 
     @property
     def is_running(self) -> bool:
@@ -443,6 +469,7 @@ class BroadcastController:
         if config.attached_files:
             files = self._read_attached_files(config.attached_files)
             self._file_list = files
+            self._chunks = []  # Reset chunk cache — will rebuild on first query
             self._file_context = self._format_file_context(files)
             if files:
                 logger.info("Loaded %d attached files (%d chars of context)",
@@ -451,6 +478,7 @@ class BroadcastController:
                     self._on_status(f"Loaded {len(files)} reference files")
         else:
             self._file_list = []
+            self._chunks = []
             self._file_context = ""
 
         # Engineer the initial prompt with smart file context embedding.
@@ -458,10 +486,15 @@ class BroadcastController:
         # directly. Since the full context (256K+) exceeds Gemini's ~32K input
         # limit, we use smart prioritization: files named in the task prompt
         # get full content included, lower-priority files get a manifest entry.
-        embedded_context = self._build_smart_file_context(
+        # Retrieval-augmented: extract the highest-relevance SECTIONS from
+        # all 26 files (functions, doc sections) based on the task text.
+        # Lets us pack content from many more files than whole-file embedding
+        # because we skip the irrelevant sections of each file entirely.
+        embedded_context = self._build_retrieval_context(
             budget=28_000,
+            query=config.task,
+            focus_name="deep_dive",
             task_prompt=config.task,
-            focus_name="deep_dive",  # Initial build uses deep_dive priority
         )
         if embedded_context:
             logger.info("Initial prompt file context: %d chars "
@@ -558,9 +591,11 @@ class BroadcastController:
         if config.attached_files:
             files = self._read_attached_files(config.attached_files)
             self._file_list = files
+            self._chunks = []
             self._file_context = self._format_file_context(files)
         else:
             self._file_list = []
+            self._chunks = []
             self._file_context = ""
 
         # Restore per-session state
@@ -849,6 +884,9 @@ class BroadcastController:
             s = line.strip()
             if not s:
                 continue
+            # Skip visual separator lines (====, ----, ~~~~, ____)
+            if re.fullmatch(r'[=\-~_─═#]{4,}', s):
+                continue
             # Skip obvious non-descriptive lines
             if s.startswith(("import ", "from ", "#!", "# -*-")):
                 continue
@@ -856,6 +894,9 @@ class BroadcastController:
             for prefix in ("# ", "## ", "### ", '"""', "'''", "//", "/*", "* ", "- "):
                 if s.startswith(prefix):
                     s = s[len(prefix):].strip()
+            # After stripping, re-check for separator
+            if re.fullmatch(r'[=\-~_─═#]{4,}', s):
+                continue
             if len(s) > 10:
                 return s[:max_chars]
         # Fallback: bytes count
@@ -1075,6 +1116,392 @@ class BroadcastController:
 
         return "\n".join(parts)
 
+    # ── Retrieval-Augmented Context (chunk-level extraction) ────────
+    #
+    # When reference files exceed the model's input limit, we can't embed
+    # everything. Smart-context above handles this by picking whole files
+    # via priority, but many files have only a few sections relevant to
+    # each iteration. Retrieval-based chunking unlocks much better signal:
+    # parse each file into logical sections (Python functions/classes,
+    # doc sections), then rank every chunk against the iteration's actual
+    # directive and pack the highest-scoring chunks into the budget.
+
+    # Common stopwords — not useful as retrieval keywords
+    _STOPWORDS = frozenset({
+        "the", "and", "for", "with", "this", "that", "from", "into", "your",
+        "their", "have", "will", "must", "should", "each", "every", "make",
+        "ensure", "follow", "apply", "step", "output", "please", "they",
+        "there", "these", "those", "what", "when", "where", "which", "while",
+        "being", "been", "were", "than", "then", "them", "they're", "about",
+        "below", "above", "more", "less", "very", "some", "most", "other",
+        "also", "only", "just", "only", "does", "done", "doing", "would",
+        "could", "might", "same", "such", "used", "uses", "like", "over",
+        "this", "needs", "need", "task", "code", "file", "files", "system",
+        "function", "class", "build", "write", "create", "implement", "based",
+        "using", "method", "methods", "name", "names", "type", "types",
+    })
+
+    @staticmethod
+    def _is_python_file(f: dict[str, str]) -> bool:
+        """Detect a Python source file (possibly named foo.py.txt)."""
+        name = f.get("name", "")
+        return name.endswith(".py") or ".py." in name or f.get("ext") == "py"
+
+    def _chunk_python(self, f: dict[str, str]) -> list[dict[str, Any]]:
+        """Split a Python file into logical chunks (functions, classes, top-level).
+
+        Preserves module-level imports/constants as one chunk at the head so
+        the AI sees how functions are defined globally when it sees them.
+        """
+        content = f["content"]
+        lines = content.splitlines()
+        chunks: list[dict[str, Any]] = []
+        current: list[str] = []
+        current_name = "<module header>"
+
+        def flush() -> None:
+            if current:
+                text = "\n".join(current).strip("\n")
+                if text.strip():
+                    chunks.append({
+                        "file": f["name"],
+                        "name": current_name,
+                        "content": text,
+                        "ext": "py",
+                        "kind": "py",
+                    })
+
+        # Regex for top-level def / class (no leading spaces), or
+        # first-level methods (exactly 4 spaces leading).
+        top_def = re.compile(r'^(def |class |async def )\w')
+        method_def = re.compile(r'^    (def |async def )\w')
+
+        for line in lines:
+            if top_def.match(line) or method_def.match(line):
+                flush()
+                current_name = line.strip()[:80]
+                current = [line]
+            else:
+                current.append(line)
+        flush()
+        return chunks
+
+    def _chunk_doc(self, f: dict[str, str]) -> list[dict[str, Any]]:
+        """Split a documentation file into sections by visual separators.
+
+        Detects headers, separator lines (==========, --------), and
+        markdown-style ## / ### headers. Each chunk keeps its own header
+        so the AI knows what part of the doc it's reading.
+        """
+        content = f["content"]
+        lines = content.splitlines()
+        chunks: list[dict[str, Any]] = []
+        current: list[str] = []
+        current_name = "<preamble>"
+
+        def flush() -> None:
+            if current:
+                text = "\n".join(current).strip("\n")
+                # Skip tiny whitespace/separator-only chunks
+                if text.strip() and len(text.strip()) > 30:
+                    chunks.append({
+                        "file": f["name"],
+                        "name": current_name,
+                        "content": text,
+                        "ext": f.get("ext", "txt"),
+                        "kind": "doc",
+                    })
+
+        sep_line = re.compile(r'^[=\-─═]{6,}\s*$')
+        md_header = re.compile(r'^#{1,4}\s+\S')
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            # Pattern A: `===` line, then title line, then `===` line
+            if (sep_line.match(line)
+                    and i + 2 < len(lines)
+                    and sep_line.match(lines[i + 2])
+                    and lines[i + 1].strip()):
+                flush()
+                current_name = lines[i + 1].strip()[:120]
+                current = [line, lines[i + 1], lines[i + 2]]
+                i += 3
+                continue
+            # Pattern B: markdown header
+            if md_header.match(line):
+                flush()
+                current_name = line.strip().lstrip("# ")[:120]
+                current = [line]
+                i += 1
+                continue
+            current.append(line)
+            i += 1
+        flush()
+
+        # If there were zero boundaries, keep the whole doc as one chunk
+        if not chunks and content.strip():
+            chunks.append({
+                "file": f["name"],
+                "name": f["name"],
+                "content": content,
+                "ext": f.get("ext", "txt"),
+                "kind": "doc",
+            })
+        return chunks
+
+    def _chunk_file(self, f: dict[str, str]) -> list[dict[str, Any]]:
+        """Dispatch to the right chunker based on file type."""
+        if self._is_python_file(f):
+            return self._chunk_python(f)
+        return self._chunk_doc(f)
+
+    def _build_chunk_index(self) -> None:
+        """Chunk every file in self._file_list and cache in self._chunks.
+
+        Runs once per broadcast (not per iteration). Each chunk is a dict:
+            {file, name, content, ext, kind}
+        """
+        if self._chunks or not self._file_list:
+            return
+        total_chunks = 0
+        for f in self._file_list:
+            try:
+                pieces = self._chunk_file(f)
+                self._chunks.extend(pieces)
+                total_chunks += len(pieces)
+            except Exception as e:
+                logger.warning("Chunking failed for %s: %s — keeping whole",
+                               f.get("name"), e)
+                self._chunks.append({
+                    "file": f["name"],
+                    "name": f["name"],
+                    "content": f["content"],
+                    "ext": f.get("ext", "text"),
+                    "kind": "whole",
+                })
+                total_chunks += 1
+        logger.info("Chunked %d files into %d retrievable sections",
+                    len(self._file_list), total_chunks)
+
+    @classmethod
+    def _extract_keywords(cls, text: str) -> list[str]:
+        """Extract retrieval keywords from a directive/task/prompt.
+
+        Returns lowercase tokens of length ≥4 that aren't stopwords. Also
+        extracts CamelCase/snake_case identifiers as high-signal terms.
+        """
+        if not text:
+            return []
+        # Pull out code-like identifiers in full (snake_case, camelCase,
+        # dotted paths) — these are usually function/class/file names.
+        idents = re.findall(r'[A-Za-z_][A-Za-z0-9_]{3,}(?:\.[A-Za-z_]\w*)*', text)
+        # Also split camelCase into parts so "MGBAControl" scores on "mgba"
+        extras = []
+        for ident in idents:
+            # split on CamelCase boundaries
+            parts = re.findall(r'[A-Z]+[a-z0-9]*|[a-z0-9]+', ident)
+            extras.extend(parts)
+        tokens = {t.lower() for t in idents + extras}
+        # Also basic word tokens
+        words = re.findall(r'\b[A-Za-z][A-Za-z_-]{3,}\b', text.lower())
+        tokens.update(words)
+        return [t for t in tokens if t and t not in cls._STOPWORDS and len(t) >= 3]
+
+    @staticmethod
+    def _score_chunk(chunk: dict[str, Any], keywords: list[str]) -> float:
+        """Score a chunk by keyword frequency in its content + name.
+
+        Name matches are weighted 3x (function/section names are strong signal).
+        Content matches add log-scaled frequency so a chunk that mentions a
+        term 20x doesn't dominate over chunks with good coverage.
+        """
+        if not keywords:
+            return 0.0
+        name = chunk.get("name", "").lower()
+        content = chunk.get("content", "").lower()
+        file_name = chunk.get("file", "").lower()
+
+        score = 0.0
+        import math
+        for kw in keywords:
+            # File-name hit (strongest)
+            if kw in file_name:
+                score += 5.0
+            # Chunk-name hit (strong)
+            if kw in name:
+                score += 3.0
+            # Content hits (diminishing return)
+            count = content.count(kw)
+            if count:
+                score += 1.0 + math.log1p(count)
+        return score
+
+    @staticmethod
+    def _score_chunk_weighted(
+        chunk: dict[str, Any], kw_weights: dict[str, float]
+    ) -> float:
+        """Score a chunk using per-keyword weights (directive > focus > task).
+
+        Same location weighting as _score_chunk (file > name > content), but
+        scales each hit by the keyword's caller-provided weight.
+        """
+        if not kw_weights:
+            return 0.0
+        import math
+        name = chunk.get("name", "").lower()
+        content = chunk.get("content", "").lower()
+        file_name = chunk.get("file", "").lower()
+
+        score = 0.0
+        for kw, weight in kw_weights.items():
+            hit = False
+            if kw in file_name:
+                score += 5.0 * weight
+                hit = True
+            if kw in name:
+                score += 3.0 * weight
+                hit = True
+            count = content.count(kw)
+            if count:
+                score += (1.0 + math.log1p(count)) * weight
+                hit = True
+            # Small penalty-avoidance: no-hit keywords don't subtract
+            _ = hit
+        return score
+
+    def _build_retrieval_context(
+        self,
+        budget: int,
+        query: str,
+        focus_name: str = "",
+        task_prompt: str = "",
+    ) -> str:
+        """Build a context block of the highest-relevance chunks for this query.
+
+        Uses chunk-level retrieval so a 10K-char file where only a 500-char
+        function matters won't crowd out sections from other files. Every
+        returned chunk is tagged with (filename → section-name) so the AI
+        sees exactly which piece of which file it's reading.
+        """
+        if not self._file_list:
+            return ""
+        self._build_chunk_index()
+
+        # Extract keywords separately from each source so we can weight them.
+        # Directive is THE signal for this turn — weight it heavily.
+        kw_directive = self._extract_keywords(query)
+        kw_focus = self._extract_keywords(focus_name)
+        kw_task = self._extract_keywords(task_prompt)
+
+        # Deduplicate while keeping directive weight highest
+        kw_weights: dict[str, float] = {}
+        for k in kw_directive:
+            kw_weights[k] = kw_weights.get(k, 0) + 4.0   # Directive: 4x
+        for k in kw_focus:
+            kw_weights[k] = kw_weights.get(k, 0) + 2.0   # Focus: 2x
+        for k in kw_task:
+            # Task prompt keywords get base weight only, and are skipped
+            # entirely if they're in a generic "project background" bucket
+            # (appears in >50% of chunks — too broad to help retrieval)
+            kw_weights[k] = kw_weights.get(k, 0) + 1.0
+
+        if not kw_weights:
+            # Fall back to whole-file smart context if nothing to retrieve on
+            return self._build_smart_file_context(
+                budget=budget, task_prompt=task_prompt, focus_name=focus_name,
+            )
+
+        # Prune generic keywords — those that appear in a majority of chunks
+        # carry no retrieval signal (they just sum noise into every score).
+        if len(self._chunks) > 10:
+            generic_threshold = len(self._chunks) * 0.5
+            noise: list[str] = []
+            for kw in list(kw_weights.keys()):
+                hits = sum(1 for c in self._chunks if kw in c["content"].lower())
+                if hits >= generic_threshold:
+                    noise.append(kw)
+            for kw in noise:
+                kw_weights.pop(kw, None)
+
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for chunk in self._chunks:
+            s = self._score_chunk_weighted(chunk, kw_weights)
+            if s > 0:
+                scored.append((s, chunk))
+        scored.sort(key=lambda x: -x[0])
+
+        manifest = self._build_manifest(self._file_list)
+        header_reserve = len(manifest) + 1_200
+        content_budget = max(budget - header_reserve, 2_000)
+
+        selected: list[dict[str, Any]] = []
+        used = 0
+        seen_files: set[str] = set()
+        for score, chunk in scored:
+            lang = chunk.get("ext") or "text"
+            body = chunk["content"]
+            # Hard-cap individual chunk size so one giant function can't eat
+            # the whole budget. Long code chunks get a `... [truncated]` tail.
+            MAX_CHUNK_CHARS = 6_000
+            if len(body) > MAX_CHUNK_CHARS:
+                body = body[:MAX_CHUNK_CHARS].rstrip() + "\n... [chunk truncated]"
+            section = (
+                f"=== {chunk['file']}  →  {chunk['name']} "
+                f"(score {score:.1f}) ===\n"
+                f"```{lang}\n{body}\n```"
+            )
+            section_len = len(section) + 2
+            if used + section_len > content_budget:
+                continue
+            selected.append(chunk)
+            seen_files.add(chunk["file"])
+            used += section_len
+
+        # Build output
+        parts = [
+            "═══════════════ REFERENCE MATERIAL ═══════════════",
+            "You DO NOT have file system access. The material below is",
+            "the ONLY reference you have. Each section is labeled with",
+            "its source file and its location within that file. Do NOT",
+            "attempt to 'open', 'read', 'fetch', or 'load' any file.",
+            "",
+            "Context is RETRIEVED: we extracted the highest-relevance",
+            "sections from across all reference files based on your",
+            "current directive. Sections you need that aren't below",
+            "either don't exist yet or were out of budget this turn —",
+            "stub them as TODO rather than inventing them.",
+            "",
+            manifest,
+        ]
+        if selected:
+            files_hit = len(seen_files)
+            parts.append(
+                f"\n─── RELEVANT SECTIONS: {len(selected)} chunks from "
+                f"{files_hit} files (ranked by relevance to this turn) ───"
+            )
+            for chunk in selected:
+                lang = chunk.get("ext") or "text"
+                body = chunk["content"]
+                MAX_CHUNK_CHARS = 6_000
+                if len(body) > MAX_CHUNK_CHARS:
+                    body = body[:MAX_CHUNK_CHARS].rstrip() + "\n... [chunk truncated]"
+                # Compute score fresh for display (we didn't store it)
+                parts.append(
+                    f"=== {chunk['file']}  →  {chunk['name']} ===\n"
+                    f"```{lang}\n{body}\n```"
+                )
+        # Let the AI know which files contributed nothing this turn
+        all_files = {f["name"] for f in self._file_list}
+        unused_files = sorted(all_files - seen_files)
+        if unused_files:
+            parts.append(
+                f"\n[Files with no matching sections this turn "
+                f"(see manifest summaries): {', '.join(unused_files)}]"
+            )
+        parts.append("═══════════════ END REFERENCE MATERIAL ═══════════════")
+        return "\n".join(parts)
+
     def _send_file_context_messages(
         self, session, sid: str, ai_name: str,
     ) -> None:
@@ -1177,14 +1604,18 @@ class BroadcastController:
             # Caller provided explicit context — use it as-is
             parts.append(file_context)
         elif self._file_list and remaining > 2_000:
-            # Build a smart, budget-aware file context for this iteration
-            smart_ctx = self._build_smart_file_context(
+            # Build retrieval-augmented context: extract the SECTIONS from
+            # across all files most relevant to the current directive/focus.
+            # Chunk-level retrieval gives much better signal per byte than
+            # whole-file embedding when we're budget-constrained.
+            retrieval_ctx = self._build_retrieval_context(
                 budget=min(remaining, 15_000),
-                task_prompt=task_prompt,
+                query=directive,
                 focus_name=focus_name,
+                task_prompt=task_prompt,
             )
-            if smart_ctx:
-                parts.append(smart_ctx)
+            if retrieval_ctx:
+                parts.append(retrieval_ctx)
         elif self._file_list:
             # Too tight — just include the manifest so the AI knows
             # what files exist (even if their content isn't embedded)
