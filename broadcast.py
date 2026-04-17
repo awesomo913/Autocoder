@@ -360,6 +360,7 @@ class BroadcastController:
         self._on_iteration: Optional[Callable] = None
         self._on_complete: Optional[Callable] = None
         self._file_context: str = ""  # Formatted attached file contents
+        self._file_list: list[dict[str, str]] = []  # Raw file dicts for smart selection
 
     @property
     def is_running(self) -> bool:
@@ -441,6 +442,7 @@ class BroadcastController:
         # Read attached files (once, upfront)
         if config.attached_files:
             files = self._read_attached_files(config.attached_files)
+            self._file_list = files
             self._file_context = self._format_file_context(files)
             if files:
                 logger.info("Loaded %d attached files (%d chars of context)",
@@ -448,42 +450,29 @@ class BroadcastController:
                 if self._on_status:
                     self._on_status(f"Loaded {len(files)} reference files")
         else:
+            self._file_list = []
             self._file_context = ""
 
-        # Engineer the initial prompt with embedded file context.
-        # Multi-turn file upload is broken on Gemini (Angular state gets
-        # stuck after first send), so we embed as much file context as
-        # possible directly in the initial prompt. ~25K of file context
-        # fits within Gemini's ~32K input limit alongside the task prompt.
-        MAX_EMBEDDED_CONTEXT = 25_000
-        embedded_context = ""
-        if self._file_context:
-            if len(self._file_context) <= MAX_EMBEDDED_CONTEXT:
-                embedded_context = self._file_context
-            else:
-                # Truncate at a file boundary (look for separator lines)
-                truncated = self._file_context[:MAX_EMBEDDED_CONTEXT]
-                # Find the last complete file boundary
-                for sep in ["═══", "───", "---", "\n\n"]:
-                    last_sep = truncated.rfind(sep)
-                    if last_sep > MAX_EMBEDDED_CONTEXT * 0.5:
-                        truncated = truncated[:last_sep]
-                        break
-                total_files = self._file_context.count("═══") or self._file_context.count("───") or "?"
-                embedded_context = (
-                    truncated + "\n\n"
-                    f"[NOTE: Reference files truncated to fit input limit. "
-                    f"Showing ~{len(truncated)//1000}K of {len(self._file_context)//1000}K total. "
-                    f"Focus on the files above for implementation.]"
-                )
-                logger.info("File context truncated: %d -> %d chars",
-                            len(self._file_context), len(embedded_context))
+        # Engineer the initial prompt with smart file context embedding.
+        # Gemini has no file system access — reference files must be embedded
+        # directly. Since the full context (256K+) exceeds Gemini's ~32K input
+        # limit, we use smart prioritization: files named in the task prompt
+        # get full content included, lower-priority files get a manifest entry.
+        embedded_context = self._build_smart_file_context(
+            budget=28_000,
+            task_prompt=config.task,
+            focus_name="deep_dive",  # Initial build uses deep_dive priority
+        )
+        if embedded_context:
+            logger.info("Initial prompt file context: %d chars "
+                        "(manifest + prioritized files)", len(embedded_context))
 
         task_with_context = config.task
         if embedded_context:
             task_with_context = (
-                f"REFERENCE FILES:\n{embedded_context}\n\n"
-                f"TASK:\n{config.task}"
+                f"{embedded_context}\n\n"
+                f"═══════════════ YOUR TASK ═══════════════\n"
+                f"{config.task}"
             )
 
         engineered = engineer_prompt(
@@ -568,8 +557,10 @@ class BroadcastController:
         # Reload attached files
         if config.attached_files:
             files = self._read_attached_files(config.attached_files)
+            self._file_list = files
             self._file_context = self._format_file_context(files)
         else:
+            self._file_list = []
             self._file_context = ""
 
         # Restore per-session state
@@ -844,6 +835,246 @@ class BroadcastController:
 
         return "REFERENCE FILES (use as context, follow existing patterns):\n\n" + "\n\n".join(sections)
 
+    @staticmethod
+    def _summarize_file(f: dict[str, str], max_chars: int = 180) -> str:
+        """Extract a 1-line summary of a file for the manifest.
+
+        Strategy: use the first non-blank line that looks like a description
+        (markdown header, docstring, or first comment). Falls back to the
+        filename + first 80 chars of content.
+        """
+        content = f.get("content", "")
+        lines = content.splitlines()
+        for line in lines[:30]:
+            s = line.strip()
+            if not s:
+                continue
+            # Skip obvious non-descriptive lines
+            if s.startswith(("import ", "from ", "#!", "# -*-")):
+                continue
+            # Strip common markup
+            for prefix in ("# ", "## ", "### ", '"""', "'''", "//", "/*", "* ", "- "):
+                if s.startswith(prefix):
+                    s = s[len(prefix):].strip()
+            if len(s) > 10:
+                return s[:max_chars]
+        # Fallback: bytes count
+        return f"({len(content)} chars, {f.get('ext', 'text')})"
+
+    def _build_manifest(self, files: list[dict[str, str]]) -> str:
+        """Build a compact table showing all available reference files.
+
+        Lets the AI know exactly what files exist in the full reference set
+        even when only a subset fits in the prompt.
+        """
+        if not files:
+            return ""
+        rows = []
+        for f in files:
+            size_k = len(f.get("content", "")) // 1000
+            summary = self._summarize_file(f)
+            rows.append(f"  {f['name']:<32} ({size_k:>3}K)  {summary}")
+        return (
+            "REFERENCE FILE MANIFEST (complete list of available files):\n"
+            + "\n".join(rows)
+        )
+
+    @staticmethod
+    def _prioritize_files(
+        files: list[dict[str, str]],
+        task_prompt: str,
+        focus_name: str = "",
+    ) -> list[dict[str, str]]:
+        """Order files by relevance for the current iteration.
+
+        Priority rules (highest first):
+        1. Files explicitly named in the task prompt
+        2. Files matching keywords in the current focus
+        3. Architecture/overview docs (01_ARCHITECTURE, 00_README)
+        4. Required functions / roadmap docs
+        5. Everything else in original order
+        """
+        focus_keywords = {
+            "deep_dive": ["architecture", "required", "roadmap"],
+            "extra_features": ["features", "required", "roadmap"],
+            "pressure_test": ["protections", "testing", "bug", "debug"],
+            "explore_expand": ["roadmap", "architecture", "data"],
+            "solid_functional": ["required", "testing", "architecture"],
+            "review_grade": ["architecture", "required", "roadmap", "testing"],
+        }
+
+        task_lower = task_prompt.lower()
+        focus_kw = focus_keywords.get(focus_name.lower().replace(" ", "_"), [])
+
+        def priority(f: dict[str, str]) -> tuple:
+            name = f["name"]
+            name_lower = name.lower()
+            stem = name_lower.replace(".py.txt", "").replace(".txt", "")
+            # 1. Explicit mention in task prompt (highest)
+            if name in task_prompt or stem in task_lower:
+                p1 = 0
+            else:
+                p1 = 3
+            # 2. Focus keyword match
+            if any(kw in name_lower for kw in focus_kw):
+                p2 = 0
+            else:
+                p2 = 3
+            # 3. Low-numbered docs (architecture, required) come first
+            num_prefix = name[:2] if name[:2].isdigit() else "99"
+            try:
+                p3 = int(num_prefix)
+            except ValueError:
+                p3 = 99
+            # 4. Docs before code files
+            p4 = 0 if "code/" not in f.get("path", "") and "code\\" not in f.get("path", "") else 1
+            return (p1, p2, p4, p3)
+
+        return sorted(files, key=priority)
+
+    def _build_smart_file_context(
+        self,
+        budget: int = 26_000,
+        task_prompt: str = "",
+        focus_name: str = "",
+    ) -> str:
+        """Build file context that fits within budget, prioritized by relevance.
+
+        Returns a prompt block with:
+        - Clear framing ("these are the ONLY files you have access to")
+        - Full manifest showing ALL available files with summaries
+        - Full content of top-priority files (as many as fit)
+        - Short excerpts of remaining files (first ~500 chars each)
+        - Explicit list of any files still completely omitted
+
+        This prevents Gemini from hallucinating references to files it
+        doesn't actually have in the current context, while giving at
+        least partial visibility into every reference file.
+        """
+        if not self._file_list:
+            return ""
+
+        manifest = self._build_manifest(self._file_list)
+        prioritized = self._prioritize_files(
+            self._file_list, task_prompt, focus_name
+        )
+
+        # Reserve budget for manifest + framing text + omitted-files note
+        HEADER_RESERVE = len(manifest) + 1_000
+        content_budget = max(budget - HEADER_RESERVE, 2_000)
+
+        EXCERPT_LEN = 500  # First 500 chars of each omitted file
+        SMALL_FILE_FULL = 1_000  # Files under this get full content in the excerpt pass
+        MAX_FULL_FILES = 2  # Cap on full-content files so excerpts fit too
+
+        included_full: list[dict[str, str]] = []
+        included_excerpt: list[dict[str, str]] = []
+        omitted: list[dict[str, str]] = []
+        used = 0
+
+        # Pass 1: include up to MAX_FULL_FILES of the highest-priority
+        # files in full, keeping budget headroom for excerpts of the rest.
+        # Reserve ~40% of content_budget for the excerpt pass so most
+        # files get at least partial visibility.
+        EXCERPT_RESERVE = int(content_budget * 0.4)
+        full_budget = content_budget - EXCERPT_RESERVE
+
+        for f in prioritized:
+            if len(included_full) >= MAX_FULL_FILES:
+                omitted.append(f)
+                continue
+            lang = f["ext"] or "text"
+            full_section = (
+                f"=== {f['name']} ===\n"
+                f"```{lang}\n{f['content']}\n```"
+            )
+            section_len = len(full_section) + 2
+            if used + section_len <= full_budget:
+                included_full.append(f)
+                used += section_len
+            else:
+                omitted.append(f)
+
+        # Pass 2: for files that didn't fit in full, try to include either
+        # a full copy (if small) or a short excerpt so the AI has at least
+        # a taste of each.
+        still_omitted: list[dict[str, str]] = []
+        for f in omitted:
+            lang = f["ext"] or "text"
+            content = f["content"]
+            if len(content) <= SMALL_FILE_FULL:
+                # Small file — include in full
+                excerpt_section = (
+                    f"=== {f['name']} (full — small file) ===\n"
+                    f"```{lang}\n{content}\n```"
+                )
+            else:
+                snippet = content[:EXCERPT_LEN].rstrip()
+                remaining = len(content) - len(snippet)
+                excerpt_section = (
+                    f"=== {f['name']} (excerpt — first {len(snippet)} of "
+                    f"{len(content)} chars; {remaining} chars truncated) ===\n"
+                    f"```{lang}\n{snippet}\n...\n```"
+                )
+            if used + len(excerpt_section) + 2 <= content_budget:
+                included_excerpt.append(f)
+                used += len(excerpt_section) + 2
+            else:
+                still_omitted.append(f)
+
+        # Build final context
+        parts = [
+            "═══════════════ REFERENCE MATERIAL ═══════════════",
+            "You DO NOT have file system access. The material below is",
+            "the ONLY reference you have. Every filename referenced in",
+            "your task can be found as a section header within this",
+            "block — do NOT attempt to 'open', 'read', 'fetch', or",
+            "'load' any file from disk.",
+            "",
+            manifest,
+        ]
+        if included_full:
+            parts.append(
+                f"\n─── FULL CONTENT: {len(included_full)} files "
+                f"(highest priority for this iteration) ───"
+            )
+            for f in included_full:
+                lang = f["ext"] or "text"
+                parts.append(
+                    f"=== {f['name']} ===\n"
+                    f"```{lang}\n{f['content']}\n```"
+                )
+        if included_excerpt:
+            parts.append(
+                f"\n─── EXCERPTS: {len(included_excerpt)} files "
+                f"(first {EXCERPT_LEN} chars each; see manifest for summaries) ───"
+            )
+            for f in included_excerpt:
+                lang = f["ext"] or "text"
+                content = f["content"]
+                if len(content) <= SMALL_FILE_FULL:
+                    parts.append(
+                        f"=== {f['name']} (full — small file) ===\n"
+                        f"```{lang}\n{content}\n```"
+                    )
+                else:
+                    snippet = content[:EXCERPT_LEN].rstrip()
+                    remaining = len(content) - len(snippet)
+                    parts.append(
+                        f"=== {f['name']} (excerpt — first {len(snippet)} of "
+                        f"{len(content)} chars; {remaining} chars truncated) ===\n"
+                        f"```{lang}\n{snippet}\n...\n```"
+                    )
+        if still_omitted:
+            omitted_names = ", ".join(f["name"] for f in still_omitted)
+            parts.append(
+                f"\n[{len(still_omitted)} files completely omitted this turn "
+                f"(see manifest for summaries): {omitted_names}]"
+            )
+        parts.append("═══════════════ END REFERENCE MATERIAL ═══════════════")
+
+        return "\n".join(parts)
+
     def _send_file_context_messages(
         self, session, sid: str, ai_name: str,
     ) -> None:
@@ -918,17 +1149,52 @@ class BroadcastController:
             )
 
     def _build_context_prompt(self, directive: str, codebase: str,
-                              file_context: str = "") -> str:
+                              file_context: str = "",
+                              focus_name: str = "",
+                              task_prompt: str = "") -> str:
         """Build an improvement prompt that includes the current codebase.
 
         This is the key fix for context amnesia — every iteration sees
         the actual code from the previous iteration, not just a vague
         instruction to "improve the code you wrote."
+
+        Since each iteration is now a fresh conversation (Gemini's Angular
+        state gets stuck after any send), we also include a file manifest
+        so the AI knows what reference material exists. Full file content
+        is only added if there's budget after codebase + directive.
         """
         parts = [directive]
 
+        # Budget check: Gemini caps input at ~32K chars. Leave room for
+        # directive + codebase + our wrapping. If there's room after
+        # accounting for those, include smart file context; otherwise
+        # fall back to just the manifest.
+        HARD_LIMIT = 30_000
+        used_so_far = len(directive) + len(codebase) + 500
+        remaining = HARD_LIMIT - used_so_far
+
         if file_context:
+            # Caller provided explicit context — use it as-is
             parts.append(file_context)
+        elif self._file_list and remaining > 2_000:
+            # Build a smart, budget-aware file context for this iteration
+            smart_ctx = self._build_smart_file_context(
+                budget=min(remaining, 15_000),
+                task_prompt=task_prompt,
+                focus_name=focus_name,
+            )
+            if smart_ctx:
+                parts.append(smart_ctx)
+        elif self._file_list:
+            # Too tight — just include the manifest so the AI knows
+            # what files exist (even if their content isn't embedded)
+            manifest = self._build_manifest(self._file_list)
+            if manifest:
+                parts.append(
+                    "REFERENCE MATERIAL (metadata only — content not included "
+                    "this turn due to prompt size; work from the codebase):\n"
+                    + manifest
+                )
 
         if codebase:
             parts.append(f"CURRENT CODEBASE:\n```\n{codebase}\n```")
@@ -1952,7 +2218,10 @@ class BroadcastController:
                             f"Output the ENTIRE updated codebase. No placeholders."
                         )
 
-                    full_prompt = self._build_context_prompt(directive, current_codebase)
+                    full_prompt = self._build_context_prompt(
+                        directive, current_codebase,
+                        focus_name=focus_name, task_prompt=config.task,
+                    )
 
                     role = "LEADER" if is_leader else f"WORKER-{i}"
                     if self._on_output:
@@ -2131,14 +2400,14 @@ class BroadcastController:
                         selected_focuses=selected,
                     )
 
-                    # Build the FULL prompt: directive + current codebase
-                    # Note: file context is only included in the initial prompt
-                    # (iteration 0). Subsequent iterations get the task directive
-                    # + current codebase only — this keeps prompts within Gemini's
-                    # ~30K input limit and avoids redundant context.
+                    # Build the FULL prompt: directive + current codebase.
+                    # Since each iteration is a fresh conversation (Gemini
+                    # button state workaround), we also pass focus/task so the
+                    # prompt can include a smart manifest + relevant files if
+                    # the prompt budget allows.
                     full_prompt = self._build_context_prompt(
                         improvement_directive, current_codebase,
-                        file_context="",
+                        focus_name=focus, task_prompt=config.task,
                     )
 
                     # Perfection Loop: track cycle progress
@@ -2482,10 +2751,11 @@ class BroadcastController:
                         selected_focuses=selected,
                     )
 
-                    # File context only on initial prompt, not iterations
+                    # Smart file context: manifest + focus-relevant files if
+                    # budget allows (each iteration is a fresh conversation).
                     full_prompt = self._build_context_prompt(
                         improvement_directive, current_codebase,
-                        file_context="",
+                        focus_name=focus, task_prompt=config.task,
                     )
 
                     if config.perfection_loop and selected:
