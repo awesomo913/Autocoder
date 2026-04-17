@@ -83,7 +83,12 @@ def engineer_prompt(
 IMPROVEMENT_FOCUSES: dict[str, dict] = {
     "deep_dive": {
         "label": "Deep Code Dive",
-        "description": "Analyze architecture, refactor, simplify complex logic",
+        "description": (
+            "Cleans up messy code — finds duplicated parts, oversized "
+            "functions, and confusing names, then simplifies them. "
+            "Pick this when the code feels tangled or you've made lots "
+            "of quick edits and want to tidy up."
+        ),
         "prompt": (
             "Perform a DEEP CODE DIVE on this codebase.\n\n"
             "1. ARCHITECTURE AUDIT: Map the dependency graph. Identify circular "
@@ -103,7 +108,11 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "extra_features": {
         "label": "Extra Features",
-        "description": "Add 2-3 useful features a real user would want",
+        "description": (
+            "Adds 2–3 useful features users typically want — things "
+            "like save/load, keyboard shortcuts, settings, or search. "
+            "Pick this when the core works but it feels bare-bones."
+        ),
         "prompt": (
             "ADD 2-3 genuinely useful features to this codebase.\n\n"
             "Think like a POWER USER who uses this daily. What's missing?\n"
@@ -122,7 +131,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "pressure_test": {
         "label": "Pressure Test",
-        "description": "Stress test every path, harden edge cases, bulletproof error handling",
+        "description": (
+            "Tries to break the app on purpose — with giant inputs, "
+            "weird characters, simulated crashes — then fixes every "
+            "weakness it finds. Pick this when users are complaining "
+            "about random errors or the app crashes sometimes."
+        ),
         "prompt": (
             "PRESSURE TEST this codebase like a hostile QA engineer.\n\n"
             "1. INPUT FUZZING: What happens with empty strings, None, negative "
@@ -145,7 +159,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "explore_expand": {
         "label": "Explore & Expand",
-        "description": "Push boundaries, add ambitious new capabilities",
+        "description": (
+            "Adds bold, impressive new capabilities that turn a plain "
+            "tool into something memorable. Pick this when you want "
+            "the 'wow, it does THAT too?' factor — not polish, new "
+            "abilities."
+        ),
         "prompt": (
             "EXPLORE AND EXPAND this codebase's potential.\n\n"
             "You've been asked to take this from a good program to an IMPRESSIVE "
@@ -164,7 +183,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "beautiful_gui": {
         "label": "Beautiful GUI",
-        "description": "Build/improve GUI separately, ensure it's polished and modern",
+        "description": (
+            "Makes the visual interface modern and polished — proper "
+            "spacing, colors, hover effects, loading spinners, smooth "
+            "animations. Pick this when the app works but looks dated "
+            "or amateurish."
+        ),
         "prompt": (
             "REBUILD the GUI layer of this codebase to be BEAUTIFUL.\n\n"
             "SEPARATION: The GUI must be cleanly separated from business logic. "
@@ -190,7 +214,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "solid_functional": {
         "label": "Solid & Functional",
-        "description": "Verify all buttons work, all paths execute, code is production-solid",
+        "description": (
+            "Walks through the code as if clicking every button. Fixes "
+            "anything that's broken, disconnected, or only half-wired. "
+            "Pick this when features seem to exist but nothing actually "
+            "works end-to-end yet."
+        ),
         "prompt": (
             "VERIFY and FIX every interactive element in this codebase.\n\n"
             "Walk through the code as if you're CLICKING EVERY BUTTON:\n"
@@ -214,7 +243,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "reference_images": {
         "label": "Reference Images",
-        "description": "Generate ASCII/text mockups and detailed visual specifications",
+        "description": (
+            "Writes a visual spec showing exactly what each screen "
+            "should look like, using text-art mockups + color/layout "
+            "notes. Pick this before redesigning the UI or when handing "
+            "the design to another developer."
+        ),
         "prompt": (
             "Generate REFERENCE DOCUMENTATION for this program's visual design.\n\n"
             "Create detailed visual specifications:\n"
@@ -238,7 +272,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "review_grade": {
         "label": "Review & Grade",
-        "description": "Senior review, grade the code, then improve based on findings",
+        "description": (
+            "Scores the code 1–10 on quality, architecture, polish, "
+            "error-handling, performance — then fixes the lowest-scoring "
+            "parts. Pick this for a quality checkpoint when you want an "
+            "honest 'how good is this?' reading."
+        ),
         "prompt": (
             "Perform a SENIOR DEVELOPER CODE REVIEW with grading.\n\n"
             "STEP 1 — GRADE (be honest, not generous):\n"
@@ -263,7 +302,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     # ── Focuses 9-16: added to cover orthogonal engineering dimensions ──
     "performance": {
         "label": "Performance Optimization",
-        "description": "Profile hot paths, optimize algorithms, cache, reduce latency",
+        "description": (
+            "Makes the app noticeably faster — finds slow loops and "
+            "expensive operations, replaces them with efficient ones, "
+            "caches repeat work. Pick this when users say 'this is "
+            "slow' or when load/save takes too long."
+        ),
         "prompt": (
             "OPTIMIZE THIS CODEBASE for speed and resource efficiency.\n\n"
             "1. HOT-PATH AUDIT: Identify the 3 most frequently executed code "
@@ -293,7 +337,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "security": {
         "label": "Security Hardening",
-        "description": "Input validation, auth, secrets, injection defense, safe deserialization",
+        "description": (
+            "Blocks attacks and bad data — checks all inputs, protects "
+            "passwords/keys, prevents hackers from breaking in through "
+            "file paths or fake requests. Pick this for anything that "
+            "stores passwords, accepts uploads, or runs on the internet."
+        ),
         "prompt": (
             "SECURITY-HARDEN this codebase against a hostile threat model.\n\n"
             "1. INPUT VALIDATION: Every external input (user, file, network, "
@@ -322,7 +371,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "test_suite": {
         "label": "Test Suite",
-        "description": "Write real pytest tests with fixtures, parametrize, and edge cases",
+        "description": (
+            "Writes automated tests that check the app still works "
+            "after every code change — so you instantly know if "
+            "something breaks. Pick this once you have code you care "
+            "about not breaking during future edits."
+        ),
         "prompt": (
             "BUILD A PROPER TEST SUITE for this codebase.\n\n"
             "Use pytest (AAA pattern: Arrange-Act-Assert). Include tests as a "
@@ -356,7 +410,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "documentation": {
         "label": "Documentation",
-        "description": "Docstrings, README-in-module, usage examples, type hints everywhere",
+        "description": (
+            "Writes clear instructions, code comments, usage examples, "
+            "and a README so a new developer (or future-you) can get "
+            "productive in 15 minutes. Pick this before handing the "
+            "code to someone else, going public, or if you'll revisit "
+            "it in 6 months."
+        ),
         "prompt": (
             "DOCUMENT this codebase so a new developer can onboard in 15 min.\n\n"
             "1. MODULE DOCSTRING: At the top of the main file, write a "
@@ -390,7 +450,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "logging_observability": {
         "label": "Logging & Observability",
-        "description": "Structured logs, metrics, tracing, health checks, debug aids",
+        "description": (
+            "Records what the app is doing as it runs — timestamps, "
+            "errors, timings, health status — so when something goes "
+            "wrong you have a clear trail to debug with. Pick this for "
+            "anything running unattended or anything going to production."
+        ),
         "prompt": (
             "ADD PRODUCTION-GRADE OBSERVABILITY to this codebase.\n\n"
             "1. STRUCTURED LOGGING: Replace every `print` with the `logging` "
@@ -423,7 +488,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "concurrency": {
         "label": "Concurrency & Parallelism",
-        "description": "Async, threading, locks, queues, parallel workers — used correctly",
+        "description": (
+            "Lets the app do multiple things at once without them "
+            "stepping on each other — so the UI doesn't freeze while "
+            "downloads happen or data loads. Pick this when the app "
+            "does heavy work that shouldn't block everything else."
+        ),
         "prompt": (
             "UPGRADE THE CONCURRENCY MODEL of this codebase.\n\n"
             "1. IDENTIFY OPPORTUNITIES: Find operations that are IO-bound "
@@ -458,7 +528,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "configuration": {
         "label": "Configuration & Env",
-        "description": "CLI args, config files, env vars, validation, profiles",
+        "description": (
+            "Lets users customize the app via settings files, command-"
+            "line flags, or environment variables — no editing code to "
+            "change behavior. Pick this when you want different setups "
+            "(dev/staging/prod) or non-devs need to configure it."
+        ),
         "prompt": (
             "INTRODUCE FIRST-CLASS CONFIGURATION to this codebase.\n\n"
             "1. CENTRAL CONFIG: Create a single `Config` dataclass "
@@ -492,7 +567,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "error_recovery": {
         "label": "Error Recovery & Resilience",
-        "description": "Retries with backoff, circuit breakers, fallbacks, graceful degradation",
+        "description": (
+            "Teaches the app to handle failures without crashing — "
+            "retries when the network blips, recovers from stuck "
+            "states, cleans up after interruptions. Pick this for "
+            "anything that talks to the internet, disk, or other "
+            "services and needs to 'just keep working'."
+        ),
         "prompt": (
             "MAKE THIS CODEBASE SURVIVE REAL-WORLD FAILURES.\n\n"
             "Pressure-testing finds bugs. Resilience is about what happens "
@@ -530,7 +611,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     # ── Focuses 17-32: Cursor-level depth for apps, games, and systems ──
     "plugin_system": {
         "label": "Plugin / Extension System",
-        "description": "Add hook points, plugin discovery, dynamic load, version-compat shim",
+        "description": (
+            "Lets other developers (or power users) add their own "
+            "features on top of your app without touching your code — "
+            "like VS Code extensions or WordPress plugins. Pick this "
+            "when you want a community or ecosystem to grow around it."
+        ),
         "prompt": (
             "TURN THIS CODEBASE INTO A PLATFORM with a real plugin system.\n\n"
             "1. HOOK INVENTORY: Identify every place a user might want to "
@@ -560,7 +646,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "integration_layer": {
         "label": "External Integrations",
-        "description": "Clean adapter layer for external APIs/SDKs/webhooks with retries + mocks",
+        "description": (
+            "Adds clean, swappable connections to outside services "
+            "(Stripe, Slack, OpenAI, email, anything with a web API) "
+            "without tangling them into your core code. Pick this when "
+            "the app has to talk to third-party services and you want "
+            "it to be easy to switch providers or test without them."
+        ),
         "prompt": (
             "BUILD AN INTEGRATION LAYER for external services in this codebase.\n\n"
             "1. ADAPTER PATTERN: Every external dependency (HTTP API, SDK, "
@@ -590,7 +682,12 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "memory_optimization": {
         "label": "Memory Optimization",
-        "description": "__slots__, object pools, weak refs, leak hunting, lazy loading, streaming",
+        "description": (
+            "Reduces how much RAM the app uses and hunts down memory "
+            "leaks (memory that's held forever and never freed). Pick "
+            "this if the app gets slower the longer it runs, crashes "
+            "with 'out of memory', or needs to run on phones/older PCs."
+        ),
         "prompt": (
             "REDUCE MEMORY FOOTPRINT and eliminate leaks in this codebase.\n\n"
             "1. HIGH-COUNT CLASSES: Any class instantiated >1000 times "
@@ -621,7 +718,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "network_resilience": {
         "label": "Network Resilience",
-        "description": "Connection pooling, TLS, proper timeouts, retries, compression, keepalive",
+        "description": (
+            "Handles flaky internet gracefully — reconnects when "
+            "connections drop, retries with smart delays, times out "
+            "cleanly instead of hanging forever, reuses connections "
+            "for speed. Pick this for any app that calls web APIs, "
+            "downloads files, or depends on a server."
+        ),
         "prompt": (
             "HARDEN NETWORK I/O throughout this codebase.\n\n"
             "1. CONNECTION POOLING: Replace per-call `socket`/`urllib` with "
@@ -650,7 +753,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "caching_strategy": {
         "label": "Caching Strategy",
-        "description": "Multi-tier cache (memory/disk), TTL, invalidation, stampede protection",
+        "description": (
+            "Remembers recent results so the app doesn't redo the "
+            "same expensive work over and over — like remembering a "
+            "web page so you don't re-download it every time. Pick "
+            "this when the app does repeated fetches, heavy math, "
+            "or database queries with the same inputs."
+        ),
         "prompt": (
             "INTRODUCE A PROPER CACHING STRATEGY to this codebase.\n\n"
             "1. CLASSIFY DATA: For each expensive derived value, decide "
@@ -679,8 +788,15 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
         ),
     },
     "accessibility": {
-        "label": "Accessibility (a11y)",
-        "description": "WCAG AA: keyboard nav, screen readers, color contrast, focus indicators",
+        "label": "Accessibility",
+        "description": (
+            "Makes the app usable by people with disabilities — works "
+            "with screen readers for blind users, navigable by keyboard "
+            "only, high-contrast text, respects 'reduce motion' settings. "
+            "Pick this for anything public-facing, legally required "
+            "(government/education/enterprise), or you want everyone to "
+            "be able to use."
+        ),
         "prompt": (
             "MAKE THIS APP ACCESSIBLE to users with disabilities (WCAG 2.1 AA).\n\n"
             "1. KEYBOARD NAVIGATION: Every interactive control reachable "
@@ -709,8 +825,14 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
         ),
     },
     "i18n_l10n": {
-        "label": "Internationalization (i18n/l10n)",
-        "description": "Extract strings, locale-aware dates/numbers, pluralization, RTL",
+        "label": "Multiple Languages",
+        "description": (
+            "Prepares the app to support other languages and regions — "
+            "pulls all user-visible text out into translation files, "
+            "formats dates/numbers/currency the way each country "
+            "expects, handles right-to-left languages like Arabic. "
+            "Pick this before launching outside your home market."
+        ),
         "prompt": (
             "PREPARE THIS CODEBASE FOR MULTIPLE LOCALES.\n\n"
             "1. STRING EXTRACTION: Every user-facing string moves out of "
@@ -737,8 +859,14 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
         ),
     },
     "cli_ux": {
-        "label": "CLI UX Polish",
-        "description": "Rich help, colors, progress bars, prompts, tab completion, --dry-run",
+        "label": "Command-Line Polish",
+        "description": (
+            "Makes command-line tools pleasant to use — colored output, "
+            "progress bars during long tasks, clear error messages, "
+            "helpful `--help` pages, tab-completion in the shell, "
+            "safety prompts before destructive actions. Pick this if "
+            "people will type commands to use your program."
+        ),
         "prompt": (
             "MAKE THE CLI A JOY TO USE.\n\n"
             "1. ARGPARSE / TYPER: Use proper subcommands for distinct "
@@ -767,8 +895,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
         ),
     },
     "data_layer": {
-        "label": "Data Layer / Persistence",
-        "description": "DB schema, migrations, transactions, indexes, connection pool, DAL",
+        "label": "Database & Persistence",
+        "description": (
+            "Designs a proper way to store data — tables, safe schema "
+            "changes (migrations), fast searches (indexes), all-or-"
+            "nothing updates (transactions). Pick this when the app "
+            "stores real user data you can't afford to lose or corrupt."
+        ),
         "prompt": (
             "BUILD A SOLID DATA LAYER for this codebase.\n\n"
             "1. SCHEMA DESIGN: Normalize tables to 3NF unless there's a "
@@ -798,8 +931,14 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
         ),
     },
     "api_design": {
-        "label": "API Design & Contracts",
-        "description": "REST/GraphQL design, versioning, OpenAPI spec, schema validation",
+        "label": "API Design",
+        "description": (
+            "Builds a clean public interface so other programs or "
+            "websites can talk to yours — clear URLs, documented inputs "
+            "and outputs, versioning so you can change things later "
+            "without breaking people. Pick this when making a backend "
+            "service, a public SDK, or a web app's server layer."
+        ),
         "prompt": (
             "DESIGN A CLEAN PUBLIC API for this codebase.\n\n"
             "1. RESOURCE MODEL: Identify the nouns. Each resource has a "
@@ -832,7 +971,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "state_management": {
         "label": "State Management",
-        "description": "Immutable state, event sourcing, undo/redo, pub-sub, single source of truth",
+        "description": (
+            "Organizes all the 'what's happening right now' data in "
+            "one clean place instead of scattered everywhere — makes "
+            "debugging simple and enables undo/redo almost for free. "
+            "Pick this for complex apps with lots of moving parts or "
+            "whenever the code feels spaghetti because state is tangled."
+        ),
         "prompt": (
             "REFACTOR STATE MANAGEMENT into a disciplined, debuggable model.\n\n"
             "1. SINGLE SOURCE OF TRUTH: All mutable state lives in one "
@@ -861,7 +1006,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "game_loop": {
         "label": "Game Loop / Real-Time",
-        "description": "Fixed timestep, interpolation, frame budget, input lag minimization",
+        "description": (
+            "Builds a smooth, stutter-free frame loop for games or "
+            "anything real-time — consistent physics regardless of "
+            "frame-rate, no input lag, no 'spiral of death' when the "
+            "app slows down. Pick this for games, simulations, "
+            "animations, or anything running at 30–60 frames per second."
+        ),
         "prompt": (
             "BUILD A PROPER REAL-TIME LOOP for this codebase.\n\n"
             "1. FIXED TIMESTEP: Simulation advances in fixed-dt ticks "
@@ -890,8 +1041,15 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
         ),
     },
     "ai_behavior": {
-        "label": "AI / Behavior",
-        "description": "State machines, behavior trees, utility AI, decision making, planners",
+        "label": "AI Behavior / Decision Making",
+        "description": (
+            "Gives characters, enemies, or autonomous agents smart "
+            "decision-making — instead of hardcoded 'if this then "
+            "that', they use state machines or behavior trees to "
+            "react intelligently. Pick this for enemies in a game, "
+            "NPCs, chatbots, or any bot that needs to make real-time "
+            "decisions."
+        ),
         "prompt": (
             "DESIGN ROBUST AUTONOMOUS BEHAVIOR for this codebase.\n\n"
             "1. PICK THE MODEL: Choose one primary style and commit — a "
@@ -923,7 +1081,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "save_system": {
         "label": "Save System",
-        "description": "Checkpoints, autosave, multi-slot, versioned formats, corruption recovery",
+        "description": (
+            "Saves user progress reliably — automatic saves every few "
+            "minutes, manual save slots, survives crashes without "
+            "corrupting the save file, handles older save formats "
+            "when the app updates. Pick this for games or any app "
+            "where losing user work would be painful."
+        ),
         "prompt": (
             "BUILD A ROBUST SAVE SYSTEM for this codebase.\n\n"
             "1. SERIALIZATION FORMAT: Pick one and document it. JSON for "
@@ -953,7 +1117,13 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
     "packaging": {
         "label": "Packaging & Distribution",
-        "description": "pyproject.toml, entry points, PyPI-ready, Dockerfile, standalone binaries",
+        "description": (
+            "Makes the app installable by regular users — they can "
+            "`pip install` it, run a `.exe`, or pull a Docker image — "
+            "no need to be a developer. Pick this when ready to share "
+            "the app with people who won't (or can't) build it from "
+            "source themselves."
+        ),
         "prompt": (
             "MAKE THIS CODEBASE DISTRIBUTABLE.\n\n"
             "1. `pyproject.toml`: Fill in project name, version, "
@@ -983,9 +1153,533 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
             "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
         ),
     },
+    "onboarding_firstrun": {
+        "label": "Onboarding & First-Run",
+        "description": (
+            "Guides new users through their first experience — a "
+            "welcome flow, a short tutorial, helpful empty-state "
+            "messages ('no items yet — try clicking here'), tooltips "
+            "that explain what each thing does. Pick this when users "
+            "open the app and don't know what to do first."
+        ),
+        "prompt": (
+            "ADD A FIRST-RUN EXPERIENCE that makes this app feel "
+            "welcoming to a brand-new user.\n\n"
+            "1. DETECT FIRST RUN: Track whether this is the user's "
+            "first launch (a marker file, a setting, or empty state). "
+            "Show the onboarding flow only then.\n"
+            "2. WELCOME SCREEN: Short, friendly intro — what the app "
+            "does in 1-2 sentences, a primary action to get started.\n"
+            "3. INTERACTIVE TUTORIAL: Walk through the 3-5 most-used "
+            "features with tooltips/spotlights. Skippable at any time.\n"
+            "4. EMPTY STATES: Every list/table/panel that starts empty "
+            "gets a friendly explanation + a call-to-action button "
+            "('No projects yet — Create your first').\n"
+            "5. PROGRESSIVE DISCLOSURE: Advanced settings are hidden "
+            "behind a 'Show advanced' toggle. Don't overwhelm.\n"
+            "6. CONTEXTUAL TOOLTIPS: Hover hints on non-obvious "
+            "controls. A '?' help icon next to complex features.\n"
+            "7. SAMPLE DATA: One-click 'Load example project' so "
+            "users can explore features with realistic content "
+            "instead of an empty app.\n"
+            "8. RE-ENABLE: Let users re-trigger the tutorial from a "
+            "menu ('Show tutorial again') without having to reinstall.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "import_export": {
+        "label": "Import / Export",
+        "description": (
+            "Lets users move data in and out of the app — import "
+            "CSV/JSON files, drag-and-drop, copy-paste from clipboard, "
+            "export in common formats. Pick this when users need to "
+            "bring in existing data or send results to another tool."
+        ),
+        "prompt": (
+            "ADD IMPORT AND EXPORT CAPABILITIES to this codebase.\n\n"
+            "1. FORMAT SUPPORT: Identify the core data shapes the app "
+            "owns. For each, support import + export in the most "
+            "common formats: CSV, JSON, and one binary/compact format "
+            "(msgpack, Parquet). Excel (.xlsx) where it fits.\n"
+            "2. DRAG-AND-DROP: If there's a GUI, support drop-to-"
+            "import on relevant surfaces. Accept multiple files at once.\n"
+            "3. CLIPBOARD: 'Copy as JSON' / 'Paste from clipboard' for "
+            "quick ad-hoc interchange.\n"
+            "4. STREAMING: Large files import as a stream with a "
+            "progress bar and cancel button — never freeze the UI.\n"
+            "5. VALIDATION: Parse strictly. If a row is malformed, "
+            "skip it with a reported warning; don't silently corrupt "
+            "the destination. Show a summary of successes/skips at the "
+            "end.\n"
+            "6. CHARACTER ENCODING: Default to UTF-8 but sniff BOM / "
+            "common encodings on import. Export uses UTF-8 with BOM "
+            "on Windows for Excel compatibility.\n"
+            "7. ROUND-TRIP FIDELITY: Exporting then re-importing the "
+            "same data produces the same result. Test this.\n"
+            "8. COMMAND-LINE: `app import <file>` and `app export "
+            "<dest>` for scripting, mirroring the GUI behavior.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "search_filter": {
+        "label": "Search & Filter",
+        "description": (
+            "Adds fast search and filtering so users can find things "
+            "in big lists — text search, fuzzy matching, multi-field "
+            "filters, sorting. Pick this when users are scrolling "
+            "through lists or can't find what they're looking for."
+        ),
+        "prompt": (
+            "ADD SEARCH AND FILTER CAPABILITIES wherever users browse "
+            "lists, tables, or collections.\n\n"
+            "1. INSTANT SEARCH: A visible search box. As the user "
+            "types, results filter live (debounced ~200ms so it's "
+            "smooth). Case-insensitive, matches anywhere in the text.\n"
+            "2. FUZZY MATCHING: Support small typos via fuzzy match "
+            "(fzf / Levenshtein / token). 'prjct' finds 'project'.\n"
+            "3. FIELD-SPECIFIC FILTERS: For structured data, let users "
+            "filter by each column: dropdown for categories, date "
+            "range pickers, min/max for numbers.\n"
+            "4. COMBINED FILTERS: Multiple filters stack (AND logic). "
+            "A 'Clear all filters' button is always visible when any "
+            "are active.\n"
+            "5. SAVED SEARCHES: Users can save a filter combo as a "
+            "named preset ('My open tasks') and recall it.\n"
+            "6. HIGHLIGHTING: Matching text in results is highlighted "
+            "so users see WHY each result matched.\n"
+            "7. SORT: Every column is sortable (asc/desc). Remember "
+            "last sort across sessions.\n"
+            "8. EMPTY STATE: 'No results for X' with suggestions to "
+            "relax filters. Never a blank screen.\n"
+            "9. PERFORMANCE: For large lists (>10K items), indexing "
+            "so search stays snappy (<100ms).\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "shortcuts_hotkeys": {
+        "label": "Keyboard Shortcuts",
+        "description": (
+            "Makes the app fast for power users — hotkeys for common "
+            "actions, a command palette (Ctrl+K) that searches every "
+            "feature, a cheat-sheet showing all shortcuts. Pick this "
+            "when power users want keyboard-first workflows."
+        ),
+        "prompt": (
+            "ADD A KEYBOARD-FIRST EXPERIENCE for power users.\n\n"
+            "1. SHORTCUT MAP: Every common action gets a shortcut. "
+            "Follow platform conventions (Ctrl+S save, Ctrl+Z undo). "
+            "Use modifier+letter, never just a letter (conflicts with "
+            "typing).\n"
+            "2. COMMAND PALETTE: Ctrl+K / Cmd+K opens a searchable "
+            "list of every command. As the user types, fuzzy-match "
+            "commands by name. Enter executes.\n"
+            "3. DISCOVERABILITY: Every menu item and button shows its "
+            "shortcut next to its label. A '?' overlay lists every "
+            "shortcut.\n"
+            "4. CONTEXT-AWARE: Shortcuts change by active view — "
+            "editor shortcuts when editing, list-view shortcuts when "
+            "browsing. No conflicts.\n"
+            "5. CUSTOMIZABLE: Users can rebind shortcuts via a "
+            "settings panel. Persist rebinds across sessions.\n"
+            "6. CHORDS: Support 2-key sequences (Ctrl+K then Ctrl+S) "
+            "for advanced flows à la VS Code.\n"
+            "7. VIM / EMACS MODE (optional): If your power users "
+            "would love it, offer a vim/emacs keybinding set.\n"
+            "8. NO CONFLICTS WITH BROWSER / OS: Avoid overriding "
+            "Ctrl+W, Ctrl+T, Ctrl+N when running in a browser.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "notifications_feedback": {
+        "label": "Notifications & Feedback",
+        "description": (
+            "Adds clear feedback for every user action — success "
+            "toasts, error messages, confirmation dialogs before "
+            "destructive actions, loading spinners during waits. "
+            "Pick this when users say 'I don't know if it worked' "
+            "or actions feel silent."
+        ),
+        "prompt": (
+            "MAKE EVERY USER ACTION GIVE CLEAR FEEDBACK in this app.\n\n"
+            "1. TOAST NOTIFICATIONS: Short, non-blocking messages in "
+            "a corner — success (green), warning (yellow), error "
+            "(red), info (blue). Auto-dismiss after 3-5s, pinnable "
+            "for errors. Keyboard-accessible.\n"
+            "2. CONFIRMATION DIALOGS: Before any destructive action "
+            "(delete, overwrite, discard changes), show a modal with "
+            "a clear summary + 'Cancel' as the default-focused button "
+            "so accidental Enter doesn't confirm.\n"
+            "3. LOADING STATES: Any action >200ms shows a spinner or "
+            "skeleton loader. Any action >2s shows an explicit progress "
+            "bar with what's happening.\n"
+            "4. ERROR MESSAGES: When something fails, tell the user "
+            "(a) what broke in plain language, (b) what they can do "
+            "about it, (c) how to report the issue if not fixable.\n"
+            "5. UNDO TOASTS: For destructive actions that are "
+            "reversible (delete with undo support), show a toast with "
+            "'Deleted — [Undo]' instead of asking for confirmation.\n"
+            "6. INLINE VALIDATION: Form errors appear next to the "
+            "broken field as the user types, not only on submit.\n"
+            "7. AUTO-SAVE FEEDBACK: When auto-saving, show a subtle "
+            "'Saved' indicator. Never a modal.\n"
+            "8. SOUND (optional): A subtle success/error chime where "
+            "appropriate, respecting a user mute toggle.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "authentication": {
+        "label": "Authentication / Login",
+        "description": (
+            "Adds a secure login system — signup, login, password "
+            "reset, 'stay signed in', optional Google/GitHub sign-in. "
+            "Pick this when the app has user accounts or needs to "
+            "remember who's using it across sessions."
+        ),
+        "prompt": (
+            "ADD A PRODUCTION-GRADE AUTHENTICATION SYSTEM.\n\n"
+            "1. SIGNUP + LOGIN: Email + password with strong password "
+            "rules (min 12 chars, common-password blocklist). Signup "
+            "requires email verification.\n"
+            "2. PASSWORD HANDLING: Store only bcrypt/argon2 hashes "
+            "(never plain or reversible). Support password reset via "
+            "a one-time email token that expires in 1 hour.\n"
+            "3. SESSIONS / JWT: Chose sessions (cookie + server store) "
+            "OR JWT (stateless). Document the choice. Short access-"
+            "token TTL + long refresh-token TTL with rotation.\n"
+            "4. REMEMBER ME: Long-lived refresh cookie on opt-in. "
+            "Secure + HttpOnly + SameSite=Lax flags.\n"
+            "5. OAUTH / SSO: Add Sign-in-with-Google / GitHub / Apple "
+            "behind a feature flag. Map OAuth accounts to local user "
+            "records safely (verify email match).\n"
+            "6. MFA (optional but recommended): TOTP-based 2FA with "
+            "recovery codes. Clear setup flow.\n"
+            "7. LOGOUT: Invalidate session server-side; clear cookies; "
+            "redirect to a clean state. 'Log out everywhere' option.\n"
+            "8. ACCOUNT MANAGEMENT: Change email, change password, "
+            "delete account. All destructive ops require re-auth.\n"
+            "9. RATE LIMITING: Login attempts throttled per IP + per "
+            "account. Lockout with exponential backoff on abuse.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "authorization_permissions": {
+        "label": "Permissions & Roles",
+        "description": (
+            "Controls who can do what — user roles (admin/member/"
+            "viewer), resource-level permissions, sharing settings. "
+            "Pick this when different users should see different "
+            "things, or you're building multi-user collaboration."
+        ),
+        "prompt": (
+            "ADD A PERMISSIONS SYSTEM so different users get different "
+            "access levels.\n\n"
+            "1. ROLE MODEL: Define explicit roles (e.g. admin, owner, "
+            "editor, viewer). Every user has a role. Roles are data, "
+            "not hardcoded — an admin can create new roles.\n"
+            "2. RESOURCE-LEVEL: For every resource (project, "
+            "document, workspace), track who owns it and who's "
+            "shared-with + their role on that resource. A user can be "
+            "owner on one thing and viewer on another.\n"
+            "3. PERMISSION CHECKS: Every protected endpoint / handler "
+            "calls a central `can(user, action, resource)` function. "
+            "Business logic never inlines `if user.is_admin`.\n"
+            "4. UI AWARENESS: Buttons for actions the current user "
+            "can't do are hidden or disabled with an explanation on "
+            "hover — never show a button that errors on click.\n"
+            "5. SHARING: Owners can invite other users with a role, "
+            "revoke access, transfer ownership. Every change is audit-"
+            "logged.\n"
+            "6. AUDIT LOG: Permission changes + sensitive actions "
+            "(export, delete) are logged with user, timestamp, target.\n"
+            "7. DEFAULTS: Conservative by default — new users see only "
+            "what they're explicitly shared on.\n"
+            "8. API LAYER: Every API endpoint documents required role "
+            "and enforces it consistently.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "background_jobs": {
+        "label": "Background Jobs & Scheduling",
+        "description": (
+            "Runs work in the background — scheduled tasks (daily "
+            "reports, cleanup), delayed jobs (retry after 5 min), "
+            "queue workers for heavy processing. Pick this for long "
+            "operations that shouldn't block users or recurring tasks."
+        ),
+        "prompt": (
+            "ADD A BACKGROUND JOB SYSTEM to this codebase.\n\n"
+            "1. JOB QUEUE: A durable queue (Redis/RQ/Celery/native) "
+            "where long-running tasks go. Workers pull and execute. "
+            "UI queues the job and returns immediately.\n"
+            "2. JOB TYPES: Distinguish (a) immediate background jobs "
+            "(kicked off by user action), (b) scheduled / cron jobs "
+            "(daily reports, cleanup), (c) delayed jobs (retry in 5 "
+            "minutes), (d) periodic jobs (every N seconds).\n"
+            "3. IDEMPOTENCY: Jobs are idempotent — running twice = "
+            "running once. Use idempotency keys / check-before-write.\n"
+            "4. RETRIES: Failed jobs retry with exponential backoff "
+            "up to N times. After exhaustion, move to a dead-letter "
+            "queue with the error + context for inspection.\n"
+            "5. PROGRESS TRACKING: Long jobs update a `progress` field "
+            "(0.0-1.0 + status message) the UI can poll or subscribe "
+            "to. A 'Your job is done' notification when complete.\n"
+            "6. CANCELLATION: User can cancel a queued job. Running "
+            "jobs check a cancel flag periodically and exit cleanly.\n"
+            "7. TIMEOUTS: Every job has a max wall-clock time. "
+            "Timeout kills it and marks it failed — not silently stuck.\n"
+            "8. ADMIN UI: A page that shows active/queued/failed "
+            "jobs, with retry/cancel/inspect actions.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "monitoring_alerting": {
+        "label": "Monitoring & Alerting",
+        "description": (
+            "Tracks the app's health in production — dashboards, "
+            "alerts when things break, SLO (service-level objective) "
+            "measurements, error-rate tracking. Pick this when the "
+            "app runs in production and you can't be glued to the "
+            "logs 24/7."
+        ),
+        "prompt": (
+            "ADD PRODUCTION MONITORING AND ALERTING to this codebase.\n\n"
+            "1. METRICS: Export Prometheus-style counters, gauges, "
+            "histograms at `/metrics`. Track: request count by "
+            "endpoint, error rate, latency (p50/p95/p99), queue depth, "
+            "active sessions, business KPIs.\n"
+            "2. HEALTH ENDPOINTS: `/healthz` (liveness — am I alive?), "
+            "`/readyz` (readiness — can I serve traffic? all upstreams "
+            "OK?). Return structured JSON with subsystem status.\n"
+            "3. STRUCTURED LOGS: Every log line is JSON with "
+            "timestamp, level, logger, message, and trace_id. Pipe to "
+            "stdout — let the orchestrator handle shipping.\n"
+            "4. DISTRIBUTED TRACING: OpenTelemetry instrumentation "
+            "around HTTP handlers, DB queries, outbound calls. Each "
+            "request gets a trace_id propagated through.\n"
+            "5. SLO DEFINITIONS: Write down the app's SLOs (e.g. "
+            "'99.9% of requests <500ms'). Monitor actual vs. target. "
+            "Alert on error budget burn.\n"
+            "6. ALERTS: Define pager-worthy alerts — error rate "
+            ">5% for 5min, p95 latency >2s for 10min, queue depth "
+            ">1000 for 5min. Include playbook link in alert.\n"
+            "7. DASHBOARDS: Provide a Grafana dashboard JSON that "
+            "visualizes golden signals (latency, traffic, errors, "
+            "saturation) — so ops can see the system at a glance.\n"
+            "8. RUNBOOK: Markdown doc for common alerts: 'if X fires, "
+            "check Y, then Z'.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "type_safety": {
+        "label": "Type Safety",
+        "description": (
+            "Adds type information everywhere so mistakes are caught "
+            "in the editor instead of when running — your code editor "
+            "can warn you 'this function expects a number, you gave a "
+            "word' before you hit Run. Pick this when you want "
+            "catches-bugs-before-they-ship confidence and smarter "
+            "autocomplete while typing."
+        ),
+        "prompt": (
+            "MAKE THIS CODEBASE FULLY TYPE-SAFE.\n\n"
+            "1. FULL ANNOTATIONS: Every function signature, every "
+            "class attribute, every module-level constant gets a "
+            "proper type annotation. No `Any` unless truly necessary "
+            "(and commented why).\n"
+            "2. STRICT CHECKER CONFIG: Configure mypy (or pyright) "
+            "with `--strict`. Add a `mypy.ini` / `pyproject.toml` "
+            "section. Zero errors at the end.\n"
+            "3. DOMAIN TYPES: Replace raw `str` / `int` with "
+            "`NewType` for identifiers (`UserId = NewType('UserId', "
+            "int)`) so you can't accidentally pass a `ProjectId` "
+            "where a `UserId` is expected.\n"
+            "4. LITERAL TYPES + ENUMS: Replace string flags with "
+            "`Literal['asc', 'desc']` or `enum.Enum`. The checker "
+            "then rejects typos at edit time.\n"
+            "5. PROTOCOLS: For pluggable interfaces, use "
+            "`typing.Protocol` instead of ABCs — better for testing "
+            "with duck-typed mocks.\n"
+            "6. TYPED DICTS / DATACLASSES: Replace free-form dicts "
+            "with `TypedDict` or frozen dataclasses so the shape is "
+            "enforced and autocompletes.\n"
+            "7. GENERICS: Use `list[T]`, `dict[K, V]`, `Iterator[T]`, "
+            "`Callable[..., T]` where the element type matters. "
+            "Avoid bare `list` / `dict`.\n"
+            "8. RUNTIME VALIDATION: At trust boundaries (API "
+            "deserialization, config loading), validate with "
+            "`pydantic` so static types + runtime shape agree.\n"
+            "9. CI GATE: `mypy` runs on every PR and must pass.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "modular_refactor": {
+        "label": "Modular Architecture",
+        "description": (
+            "Splits the codebase into clean, independent modules/"
+            "packages with clear boundaries — so features can evolve "
+            "separately and the whole thing is easier to navigate. "
+            "Pick this when the codebase has grown into a giant file "
+            "or everything depends on everything."
+        ),
+        "prompt": (
+            "REFACTOR THIS CODEBASE INTO CLEAN MODULES / PACKAGES.\n\n"
+            "1. IDENTIFY BOUNDED CONTEXTS: Find the major areas of "
+            "responsibility (e.g. 'users', 'billing', 'search', "
+            "'notifications'). Each becomes a package.\n"
+            "2. PACKAGE LAYOUT: Each package has its own `__init__.py` "
+            "exporting a stable public API. Internal helpers stay "
+            "internal (`_private.py` or `_helpers/`). No cross-"
+            "package reaches into private modules.\n"
+            "3. DEPENDENCY DIRECTION: Packages form a DAG. Core "
+            "(domain) packages depend on nothing. Infrastructure "
+            "(DB, HTTP) depends on core. App layer wires them "
+            "together. No cycles.\n"
+            "4. EXPLICIT INTERFACES: Where a package needs something "
+            "from another, the consumer defines a `Protocol` / ABC, "
+            "and the provider implements it. Injection at the edges, "
+            "not tight coupling.\n"
+            "5. SHARED KERNEL: Common types (domain entities, error "
+            "types) live in a small, rarely-changing `shared/` or "
+            "`core/` package.\n"
+            "6. NO CIRCULAR IMPORTS: A linter enforces zero cycles. "
+            "If two things need each other, extract the shared piece.\n"
+            "7. ENTRY POINTS: Top-level `main.py` / `app.py` / "
+            "`cli.py` is the only place that wires everything together "
+            "— everything else is a library.\n"
+            "8. TESTS CO-LOCATED: Each package has its own `tests/` "
+            "folder matching its structure.\n\n"
+            "Apply to the CURRENT CODEBASE below. If it's already one "
+            "file, produce a multi-file layout with clear package "
+            "boundaries. Output ENTIRE codebase."
+        ),
+    },
+    "animations_transitions": {
+        "label": "Animations & Transitions",
+        "description": (
+            "Adds smooth visual transitions — fade-ins, slide-ups, "
+            "state-change animations — so the UI feels polished "
+            "instead of jumpy. Pick this when UI changes feel "
+            "abrupt or visual feedback is lacking."
+        ),
+        "prompt": (
+            "ADD SMOOTH ANIMATIONS AND TRANSITIONS to this app.\n\n"
+            "1. TRANSITION MOMENTS: Identify every state change a "
+            "user sees — panel open/close, list add/remove, "
+            "navigation, modal in/out. Each gets a tasteful motion.\n"
+            "2. EASING: Use ease-in-out or similar, never linear "
+            "(feels mechanical). Short durations (150-300ms) for UI "
+            "interactions; longer (300-500ms) for major transitions.\n"
+            "3. TWEENS: Implement a reusable tween system "
+            "(value-over-time interpolator) so animations are one-"
+            "liners: `tween(obj.alpha, 0→1, 200ms, ease_out)`.\n"
+            "4. STATE MACHINE: UI animations driven by a small FSM — "
+            "each state has enter/exit animations, no conflicts.\n"
+            "5. NO LAYOUT THRASH: Prefer `transform` / `opacity` "
+            "(GPU-accelerated) over width/height/margin (trigger "
+            "layout). Target 60fps.\n"
+            "6. REDUCE-MOTION: Honor the user's 'reduce motion' "
+            "system setting — swap animations for instant transitions.\n"
+            "7. LOADING ANIMATIONS: Skeleton screens for slow loads; "
+            "shimmer effect rather than spinners for content-shaped "
+            "placeholders.\n"
+            "8. MICRO-INTERACTIONS: Button press, toggle flip, icon "
+            "morph — small touches that make the UI feel alive.\n"
+            "9. ANIMATION KILL-SWITCH: Global 'animations off' for "
+            "testing / low-end devices / accessibility.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "prompt_engineering": {
+        "label": "LLM / Prompt Engineering",
+        "description": (
+            "For apps that talk to Large Language Models — crafts "
+            "system prompts, manages context size, handles streaming "
+            "responses, retries and token budgets. Pick this when "
+            "the app uses ChatGPT, Claude, Gemini, or any LLM API."
+        ),
+        "prompt": (
+            "BUILD A ROBUST LLM INTEGRATION LAYER for this codebase.\n\n"
+            "1. PROMPT TEMPLATES: Every LLM call uses a named, "
+            "versioned template (`prompts/summarize_v3.md`) — not "
+            "f-strings scattered in code. Easy to A/B test.\n"
+            "2. SYSTEM PROMPT: A clear role + constraints + output "
+            "format. Test with adversarial inputs before shipping.\n"
+            "3. TOKEN BUDGET: Measure input + expected output against "
+            "the model's context window. When inputs are large, apply "
+            "a chunking or summarization strategy up front.\n"
+            "4. STREAMING: For user-facing chat, stream the response "
+            "token-by-token via the model's SSE/streaming API. Render "
+            "as it arrives.\n"
+            "5. RETRIES + FALLBACK: 429/500 errors retry with "
+            "backoff. If primary model is down, fallback to a "
+            "secondary model with equivalent prompt. Log which path.\n"
+            "6. STRUCTURED OUTPUT: When you need JSON, use the "
+            "model's native JSON mode / function-calling — not "
+            "'please return JSON' prose. Validate against a schema on "
+            "receipt.\n"
+            "7. COST + LATENCY METRICS: Log input tokens, output "
+            "tokens, latency, cost per call. Surface top spenders in "
+            "a dashboard.\n"
+            "8. PROMPT INJECTION DEFENSE: Sanitize user-provided text "
+            "before it enters system prompts. Treat model output as "
+            "untrusted when it drives actions.\n"
+            "9. CACHING: Identical (prompt, params, model) = cached "
+            "response. Respect cacheability flags.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
+    "rag_vector_search": {
+        "label": "RAG / Semantic Search",
+        "description": (
+            "Adds meaning-based search — users can ask questions in "
+            "plain English and find relevant info, not just exact "
+            "matches. Uses embeddings + a vector database. Pick this "
+            "for AI-powered Q&A, 'chat with your docs', or smart "
+            "recommendations."
+        ),
+        "prompt": (
+            "BUILD A RETRIEVAL-AUGMENTED GENERATION (RAG) system on "
+            "top of this codebase's content.\n\n"
+            "1. CORPUS: Identify the content to make searchable — "
+            "docs, DB rows, file contents. Pipeline to extract, "
+            "clean, and chunk into ~500-1000 token passages with "
+            "overlap.\n"
+            "2. EMBEDDING: Use an embedding model (OpenAI / Cohere / "
+            "local SentenceTransformers). Embed every chunk once; "
+            "store vectors + metadata + original text.\n"
+            "3. VECTOR DB: Choose one (chromadb, pgvector, qdrant, "
+            "faiss). Build a single index. Support incremental add/"
+            "update/delete as content changes.\n"
+            "4. QUERY FLOW: (a) embed the user question, (b) "
+            "retrieve top-K similar chunks via cosine/dot, (c) "
+            "re-rank with a cross-encoder for quality, (d) pass top-N "
+            "to the LLM as context.\n"
+            "5. CITATIONS: Every answer cites which chunks / "
+            "documents it used so users can verify. Link back to the "
+            "source.\n"
+            "6. HYBRID SEARCH: Combine vector search with keyword "
+            "(BM25) for better recall on acronyms/names. Reciprocal "
+            "rank fusion for merging.\n"
+            "7. EVALUATION: A small eval set of (question, expected "
+            "doc) pairs. Measure hit-rate@5, MRR. Regression-test on "
+            "every change.\n"
+            "8. GUARDRAILS: If retrieval quality is low (scores "
+            "below a threshold), say 'I don't have info on that' "
+            "instead of hallucinating.\n"
+            "9. PRIVACY: Per-user permissions on what chunks are "
+            "searchable. Strict row-level filtering.\n\n"
+            "Apply to the CURRENT CODEBASE below. Output ENTIRE codebase."
+        ),
+    },
     "ci_cd": {
-        "label": "CI/CD Pipeline",
-        "description": "GitHub Actions, pre-commit, test matrix, release automation, coverage gates",
+        "label": "Automated Build & Release",
+        "description": (
+            "Sets up automation that runs all your tests on every "
+            "code change and auto-publishes releases — catches bugs "
+            "before they ship and takes the manual work out of "
+            "releasing. Pick this once you have tests worth running "
+            "and a project you want to release regularly."
+        ),
         "prompt": (
             "AUTOMATE BUILD / TEST / RELEASE for this codebase.\n\n"
             "1. CI ON EVERY PR: A GitHub Actions (or equivalent) workflow "
@@ -1016,35 +1710,46 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
     },
 }
 
-# Default order for focus cycling — 32 dimensions a coder iterates on for
+# Default order for focus cycling — 46 dimensions a coder iterates on for
 # Cursor-level apps, programs, and games. Early rounds = foundation work,
 # later rounds = polish / deployment / hygiene (once foundation is solid).
 FOCUS_ORDER = [
     # Foundation & correctness (5)
-    "deep_dive", "solid_functional", "pressure_test", "error_recovery",
-    "review_grade",
+    "deep_dive", "modular_refactor", "solid_functional", "pressure_test",
+    "error_recovery",
+    # Code quality & review (3)
+    "type_safety", "review_grade", "test_suite",
     # Capability expansion (4)
-    "extra_features", "explore_expand",
-    "plugin_system", "integration_layer",
+    "extra_features", "explore_expand", "plugin_system", "integration_layer",
     # Non-functional properties (6)
     "performance", "memory_optimization", "security",
     "concurrency", "network_resilience", "caching_strategy",
-    # Data & APIs (3)
-    "data_layer", "api_design", "state_management",
-    # Observability & configurability (2)
-    "logging_observability", "configuration",
-    # Presentation & UX (5)
-    "beautiful_gui", "reference_images",
+    # Data & APIs (4)
+    "data_layer", "api_design", "state_management", "background_jobs",
+    # Auth & multi-user (2)
+    "authentication", "authorization_permissions",
+    # AI-specific (2)
+    "prompt_engineering", "rag_vector_search",
+    # Observability & configurability (3)
+    "logging_observability", "configuration", "monitoring_alerting",
+    # User-facing features (5)
+    "onboarding_firstrun", "import_export", "search_filter",
+    "shortcuts_hotkeys", "notifications_feedback",
+    # Presentation & UX (6)
+    "beautiful_gui", "reference_images", "animations_transitions",
     "accessibility", "i18n_l10n", "cli_ux",
-    # Game & real-time (4)
-    "game_loop", "ai_behavior", "save_system", "asset_pipeline_placeholder",
-    # Hygiene (2)
-    "documentation", "test_suite",
-    # Deployment (2)
-    "packaging", "ci_cd",
+    # Game & real-time (3)
+    "game_loop", "ai_behavior", "save_system",
+    # Hygiene & deployment (3)
+    "documentation", "packaging", "ci_cd",
 ]
-# Remove placeholder — asset_pipeline didn't ship in this pass
+# Safety: filter to only keys that exist (in case we miss a rename)
 FOCUS_ORDER = [k for k in FOCUS_ORDER if k in IMPROVEMENT_FOCUSES]
+assert len(FOCUS_ORDER) == len(IMPROVEMENT_FOCUSES), (
+    f"FOCUS_ORDER has {len(FOCUS_ORDER)} but IMPROVEMENT_FOCUSES has "
+    f"{len(IMPROVEMENT_FOCUSES)}. Missing: "
+    f"{set(IMPROVEMENT_FOCUSES) - set(FOCUS_ORDER)}"
+)
 
 # Default focuses when none are selected — small, broadly-applicable starter set
 DEFAULT_FOCUSES = ["extra_features", "pressure_test", "solid_functional", "review_grade"]
@@ -1755,6 +2460,26 @@ class BroadcastController:
             # Deployment
             "packaging": ["readme", "config", "architecture"],
             "ci_cd": ["testing", "debug", "protections"],
+            # User-facing features (new)
+            "onboarding_firstrun": ["ui", "readme", "flow"],
+            "import_export": ["data", "config", "memory"],
+            "search_filter": ["data", "required", "memory"],
+            "shortcuts_hotkeys": ["ui", "input", "flow"],
+            "notifications_feedback": ["ui", "flow", "testing"],
+            # Auth & access (new)
+            "authentication": ["protections", "input", "validation"],
+            "authorization_permissions": ["protections", "validation", "required"],
+            # Jobs & ops (new)
+            "background_jobs": ["reflex", "async", "timing"],
+            "monitoring_alerting": ["testing", "debug", "bug", "monitor"],
+            # Code quality (new)
+            "type_safety": ["required", "architecture", "testing"],
+            "modular_refactor": ["architecture", "framework", "required"],
+            # UX polish (new)
+            "animations_transitions": ["ui", "menu", "flow", "timing"],
+            # AI-specific (new)
+            "prompt_engineering": ["ai", "reflex", "framework"],
+            "rag_vector_search": ["data", "memory", "required"],
         }
 
         task_lower = task_prompt.lower()
