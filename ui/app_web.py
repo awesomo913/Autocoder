@@ -1268,6 +1268,7 @@ class GeminiCoderWebApp(GeminiCoderApp):
             selected_focuses=selected_focuses,
             perfection_loop=self._bc_perfection_loop.get(),
             attached_files=list(self._bc_attached_files),
+            session_ids=[session.session_id],
         )
 
         self._broadcast.start(config)
