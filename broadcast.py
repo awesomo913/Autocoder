@@ -260,15 +260,294 @@ IMPROVEMENT_FOCUSES: dict[str, dict] = {
             "Output the ENTIRE updated codebase. No placeholders."
         ),
     },
+    # ── Focuses 9-16: added to cover orthogonal engineering dimensions ──
+    "performance": {
+        "label": "Performance Optimization",
+        "description": "Profile hot paths, optimize algorithms, cache, reduce latency",
+        "prompt": (
+            "OPTIMIZE THIS CODEBASE for speed and resource efficiency.\n\n"
+            "1. HOT-PATH AUDIT: Identify the 3 most frequently executed code "
+            "paths. Measure or estimate their cost. Rewrite any O(n²)/O(n³) "
+            "loop into O(n log n) or O(n) using dicts, sets, heaps, or caches.\n"
+            "2. ALGORITHMIC WINS: Replace naive linear scans with indexed "
+            "lookups. Use `collections.deque` for FIFO, `heapq` for priority, "
+            "`bisect` for sorted inserts, `functools.lru_cache` for pure funcs.\n"
+            "3. I/O BATCHING: Group small reads/writes into batched ops. "
+            "Replace per-item network/disk calls with bulk operations. Buffer "
+            "before flush.\n"
+            "4. LAZY EVALUATION: Defer expensive computation until actually "
+            "needed. Use generators over list comprehensions where streaming "
+            "is acceptable. Compute-once-cache-forever for immutable derived "
+            "state.\n"
+            "5. MEMORY FOOTPRINT: Find anywhere a list/dict is held longer "
+            "than necessary. Use `__slots__` on high-count classes. Replace "
+            "full copies with views/slices where safe.\n"
+            "6. STARTUP TIME: Defer imports of heavy modules behind the first "
+            "use. Cache parsed config, compiled regexes, and loaded data at "
+            "module load — not per-call.\n\n"
+            "Add inline comments like `# perf: was O(n²), now O(n) via dict` "
+            "next to each optimization so reviewers see what changed and why.\n"
+            "Apply ALL optimizations to the CURRENT CODEBASE below.\n"
+            "Output the ENTIRE updated codebase. No placeholders."
+        ),
+    },
+    "security": {
+        "label": "Security Hardening",
+        "description": "Input validation, auth, secrets, injection defense, safe deserialization",
+        "prompt": (
+            "SECURITY-HARDEN this codebase against a hostile threat model.\n\n"
+            "1. INPUT VALIDATION: Every external input (user, file, network, "
+            "env var, argv) gets validated at the boundary. Reject early with "
+            "a clear error. Whitelist allowed characters/shapes. Cap sizes.\n"
+            "2. INJECTION DEFENSE: Any dynamic string that ends up in a shell, "
+            "SQL, HTML, path, regex, or subprocess invocation must be escaped "
+            "or parameterized. Replace f-string SQL with parameterized queries. "
+            "Replace `shell=True` with `subprocess.run([...])` argument lists.\n"
+            "3. SECRETS HANDLING: No hardcoded tokens, passwords, or keys. "
+            "Load from `os.environ` or a secret manager. Strip secrets from "
+            "logs and exception messages. Never pass secrets via command line.\n"
+            "4. DESERIALIZATION: Replace `pickle.load`/`yaml.load` with "
+            "`yaml.safe_load` / explicit schemas. Never unpickle untrusted data.\n"
+            "5. PATH TRAVERSAL: Every file path derived from user input gets "
+            "resolved via `Path(base).resolve()` and verified to stay within "
+            "the intended directory. Reject `..` and absolute paths upfront.\n"
+            "6. CRYPTO & AUTH: Use `secrets` (not `random`) for tokens. Use "
+            "`hashlib.pbkdf2_hmac` / `bcrypt` for passwords, never raw hashes. "
+            "Constant-time comparison for secrets (`hmac.compare_digest`).\n"
+            "7. DoS RESISTANCE: Cap regex backtracking, JSON depth, recursion, "
+            "upload sizes, and any unbounded growth.\n\n"
+            "Apply every fix as real code changes. No `# TODO: validate`.\n"
+            "Output the ENTIRE updated codebase. No placeholders."
+        ),
+    },
+    "test_suite": {
+        "label": "Test Suite",
+        "description": "Write real pytest tests with fixtures, parametrize, and edge cases",
+        "prompt": (
+            "BUILD A PROPER TEST SUITE for this codebase.\n\n"
+            "Use pytest (AAA pattern: Arrange-Act-Assert). Include tests as a "
+            "`tests/` section at the end of the same file IF the codebase is a "
+            "single module; otherwise add a `tests/test_<module>.py` file for "
+            "each module of substance.\n\n"
+            "1. UNIT TESTS: For every pure function, write at least:\n"
+            "   - a happy-path test\n"
+            "   - an edge-case test (empty, None, zero, negative, huge)\n"
+            "   - an error-path test that asserts the right exception\n"
+            "2. FIXTURES: Use `@pytest.fixture` for shared setup — a temp dir, "
+            "a mock client, an example config. `@pytest.fixture(scope='module')` "
+            "for expensive fixtures.\n"
+            "3. PARAMETRIZE: Collapse copy-paste test variants into "
+            "`@pytest.mark.parametrize` with a clear id for each case.\n"
+            "4. MOCKING: Use `unittest.mock.patch` for external dependencies "
+            "(network, filesystem writes, sleeps, clocks, random). Tests must "
+            "be fast (<100ms each) and deterministic.\n"
+            "5. ASSERTIONS: Prefer specific asserts (`assert result == 42`) "
+            "over `assert result` alone. Use `pytest.approx` for floats. Use "
+            "`pytest.raises(Error, match=...)` for exception shape.\n"
+            "6. INTEGRATION: One or two end-to-end tests that exercise the "
+            "main workflow top-to-bottom without mocks.\n"
+            "7. COVERAGE: Tests should exercise every branch, every error "
+            "path, and every public function. Aim for >80% coverage.\n\n"
+            "Also add a brief `# How to run:` comment at the top of the test "
+            "module showing `pytest -v` and any required env setup.\n"
+            "Apply to the CURRENT CODEBASE below.\n"
+            "Output the ENTIRE updated codebase PLUS the test code."
+        ),
+    },
+    "documentation": {
+        "label": "Documentation",
+        "description": "Docstrings, README-in-module, usage examples, type hints everywhere",
+        "prompt": (
+            "DOCUMENT this codebase so a new developer can onboard in 15 min.\n\n"
+            "1. MODULE DOCSTRING: At the top of the main file, write a "
+            "docstring that answers: What does this do? Who uses it? How "
+            "does it fit into the larger system? Include a 5-10 line "
+            "example of typical usage.\n"
+            "2. FUNCTION/CLASS DOCSTRINGS: Every public function and class "
+            "gets a Google-style docstring: one-line summary, then Args, "
+            "Returns, Raises sections. Include a short Example for non-"
+            "obvious usage.\n"
+            "3. TYPE HINTS: Every function signature gets full type hints "
+            "(including generics: `list[str]`, `dict[str, int]`, "
+            "`Optional[X]`, `Callable[[int], bool]`). Add `from __future__ "
+            "import annotations` if needed.\n"
+            "4. INLINE COMMENTS: Add `# why` comments (not `# what`) for "
+            "any non-obvious decision — 'uses X because Y' / 'order matters "
+            "because Z'. Remove comments that restate the code.\n"
+            "5. README-BLOCK: Near the top, embed a triple-quoted README "
+            "covering: installation, basic usage, configuration, common "
+            "errors & fixes, and where to look for each major subsystem.\n"
+            "6. CHANGELOG: Add a `CHANGELOG` block at the top with a "
+            "version entry describing what this iteration changes vs the "
+            "previous codebase.\n"
+            "7. EXAMPLES: Add an `if __name__ == '__main__':` demo that "
+            "exercises the headline features so a reader can run the file "
+            "directly and see it work.\n\n"
+            "Apply ALL documentation additions to the CURRENT CODEBASE "
+            "below without changing behavior.\n"
+            "Output the ENTIRE updated codebase. No placeholders."
+        ),
+    },
+    "logging_observability": {
+        "label": "Logging & Observability",
+        "description": "Structured logs, metrics, tracing, health checks, debug aids",
+        "prompt": (
+            "ADD PRODUCTION-GRADE OBSERVABILITY to this codebase.\n\n"
+            "1. STRUCTURED LOGGING: Replace every `print` with the `logging` "
+            "module. Configure once at startup with a clear format including "
+            "timestamp, level, logger-name, and message. Use `logger.info` "
+            "for lifecycle events, `logger.debug` for detail, `logger.warning` "
+            "for recoverable issues, `logger.error` with `exc_info=True` for "
+            "exceptions.\n"
+            "2. LOG LEVEL CONTROL: Level should be configurable via env var "
+            "(e.g. `LOG_LEVEL=DEBUG`) AND via CLI flag. Default INFO in "
+            "production, DEBUG if `DEBUG=1`.\n"
+            "3. STRUCTURED CONTEXT: For multi-step workflows, bind a "
+            "correlation id (uuid) at the entry point and include it in every "
+            "log line for that flow. Use `logger = logging.getLogger(__name__).getChild(run_id)`\n"
+            "4. METRICS: Expose counters (events happened), gauges (current "
+            "values), and timers (how long did X take?) via a simple in-memory "
+            "`Metrics` class. Dump them on exit to `metrics.json` for later "
+            "analysis.\n"
+            "5. HEALTH CHECK: Add a `health_check()` function that verifies "
+            "critical subsystems (connection up? config valid? required data "
+            "loaded?) and returns a structured status dict.\n"
+            "6. TRACING SHIMS: Add `@traced` decorator or context manager that "
+            "logs entry/exit of key operations with timing. Use it on the "
+            "top 5 most important functions.\n"
+            "7. ERROR TELEMETRY: On every exception caught, log the full "
+            "traceback + inputs that triggered it. Never silently swallow.\n\n"
+            "Apply to the CURRENT CODEBASE below.\n"
+            "Output the ENTIRE updated codebase. No placeholders."
+        ),
+    },
+    "concurrency": {
+        "label": "Concurrency & Parallelism",
+        "description": "Async, threading, locks, queues, parallel workers — used correctly",
+        "prompt": (
+            "UPGRADE THE CONCURRENCY MODEL of this codebase.\n\n"
+            "1. IDENTIFY OPPORTUNITIES: Find operations that are IO-bound "
+            "and run sequentially — perfect candidates for async or thread-"
+            "pool parallelism. Estimate the speedup.\n"
+            "2. CHOOSE THE RIGHT TOOL:\n"
+            "   - `asyncio` for many IO-bound tasks (network, disk) in a "
+            "single process\n"
+            "   - `concurrent.futures.ThreadPoolExecutor` for bounded IO-"
+            "bound parallelism with sync APIs\n"
+            "   - `multiprocessing.Pool` for CPU-bound fan-out\n"
+            "   - `threading.Thread` only for specific background loops\n"
+            "3. THREAD SAFETY: Any shared mutable state gets protected by "
+            "`threading.Lock` / `RLock` / `queue.Queue`. Document the "
+            "invariant the lock protects. No lock = the data must be "
+            "immutable or thread-local.\n"
+            "4. BACKPRESSURE: Replace unbounded queues with `Queue(maxsize=N)` "
+            "so producers slow down when consumers fall behind. Use bounded "
+            "`Semaphore` to cap concurrent external calls.\n"
+            "5. CANCELLATION: Every long-running worker respects a "
+            "`threading.Event` / `asyncio.CancelledError` so the app can shut "
+            "down cleanly within ~1s. Daemon threads don't block exit.\n"
+            "6. TIMEOUTS: Every `.get()`, `.join()`, network call, and "
+            "`await` has a timeout. No indefinite blocking.\n"
+            "7. NO DATA RACES: Audit for check-then-act patterns on shared "
+            "state (`if x not in cache: cache[x] = ...`) — replace with "
+            "`cache.setdefault` or a locked block.\n\n"
+            "Apply ALL changes to the CURRENT CODEBASE below. Keep public "
+            "APIs backward-compatible where practical.\n"
+            "Output the ENTIRE updated codebase. No placeholders."
+        ),
+    },
+    "configuration": {
+        "label": "Configuration & Env",
+        "description": "CLI args, config files, env vars, validation, profiles",
+        "prompt": (
+            "INTRODUCE FIRST-CLASS CONFIGURATION to this codebase.\n\n"
+            "1. CENTRAL CONFIG: Create a single `Config` dataclass "
+            "(`@dataclass(frozen=True)`) that holds every tunable — paths, "
+            "hosts, timeouts, feature flags, limits. NO more magic numbers "
+            "scattered in the code.\n"
+            "2. LOAD ORDER (highest priority last): built-in defaults → "
+            "`config.toml` / `config.json` on disk → environment variables "
+            "→ CLI flags. Document the precedence.\n"
+            "3. CLI: Use `argparse` (or `typer`/`click` if already present) "
+            "with clear `--help`, reasonable defaults, and sensible group "
+            "names (`--runtime`, `--debug`, `--output`). Every flag maps "
+            "to a Config field.\n"
+            "4. ENV: Map `APPNAME_FIELD=value` (uppercase, underscore) to "
+            "`config.field`. Type-convert based on the dataclass field type "
+            "(bool, int, list-of-str). Document each env var in the README.\n"
+            "5. VALIDATION: On construction, the Config validates every "
+            "field (path exists? port in range? timeout > 0?) and fails "
+            "fast with a specific error message on bad input.\n"
+            "6. PROFILES: Support named profiles (`--profile dev|staging|"
+            "prod`) that layer on top of defaults — so a user doesn't have "
+            "to pass 15 flags every time.\n"
+            "7. DEBUGGING AID: `config.describe()` prints the effective "
+            "config with the SOURCE of each value (default/file/env/cli), "
+            "which makes 'why is it doing X' trivial to diagnose.\n"
+            "8. NO GLOBALS: Inject config via constructor / function "
+            "argument. Don't reach out to `os.environ` from deep in the code.\n\n"
+            "Apply to the CURRENT CODEBASE below.\n"
+            "Output the ENTIRE updated codebase. No placeholders."
+        ),
+    },
+    "error_recovery": {
+        "label": "Error Recovery & Resilience",
+        "description": "Retries with backoff, circuit breakers, fallbacks, graceful degradation",
+        "prompt": (
+            "MAKE THIS CODEBASE SURVIVE REAL-WORLD FAILURES.\n\n"
+            "Pressure-testing finds bugs. Resilience is about what happens "
+            "AFTER the bug fires: does the system crash, or does it recover?\n\n"
+            "1. RETRY WITH BACKOFF: Every flaky external call (network, "
+            "disk, subprocess, DB) gets wrapped in retry logic: exponential "
+            "backoff (e.g. 1s → 2s → 4s → 8s) capped at N retries with "
+            "jitter. Only retry on transient errors (timeout, 503, connection "
+            "reset) — not on 4xx/auth/programming errors.\n"
+            "2. CIRCUIT BREAKER: For dependencies that can stay broken for "
+            "minutes, implement a simple circuit breaker: after K consecutive "
+            "failures, open the circuit for T seconds and fail fast; after T "
+            "seconds try a single probe request; if it succeeds, close the "
+            "circuit.\n"
+            "3. FALLBACK PATHS: Every non-critical dependency has a fallback "
+            "(cached value, default, degraded mode). Log the degradation at "
+            "WARNING level so operators know.\n"
+            "4. IDEMPOTENCY: Any operation that might be retried must be "
+            "safe to run N times. Use idempotency keys / check-before-write "
+            "patterns.\n"
+            "5. PARTIAL FAILURE: For batch operations, track per-item success "
+            "and keep going — don't let one bad item kill the whole batch. "
+            "Return a structured result with both successes and failures.\n"
+            "6. STATE RECOVERY: On startup, detect and recover from a crash "
+            "mid-operation (incomplete temp file, dirty lock, half-committed "
+            "state). Test this path explicitly.\n"
+            "7. WATCHDOG / HEARTBEAT: Long-running loops emit a heartbeat "
+            "every N seconds; a watchdog restarts them if silent too long.\n"
+            "8. CLEAN SHUTDOWN: Handle SIGINT/SIGTERM by flushing in-flight "
+            "work, closing resources, and committing state before exit.\n\n"
+            "Apply to the CURRENT CODEBASE below.\n"
+            "Output the ENTIRE updated codebase. No placeholders."
+        ),
+    },
 }
 
-# Default order for focus cycling
+# Default order for focus cycling — all 16 dimensions a coder might iterate on.
+# Ordered so early rounds do architecture/wiring/hardening (foundation work)
+# and later rounds do polish/tests/docs (once the foundation is solid).
 FOCUS_ORDER = [
-    "deep_dive", "extra_features", "pressure_test", "explore_expand",
-    "beautiful_gui", "solid_functional", "reference_images", "review_grade",
+    # Foundation & correctness
+    "deep_dive", "solid_functional", "pressure_test", "error_recovery",
+    # Capability expansion
+    "extra_features", "explore_expand",
+    # Non-functional properties
+    "performance", "security", "concurrency",
+    # Observability & configurability
+    "logging_observability", "configuration",
+    # Presentation & shareability
+    "beautiful_gui", "reference_images",
+    # Hygiene
+    "documentation", "test_suite", "review_grade",
 ]
 
-# Default focuses when none are selected
+# Default focuses when none are selected — small, broadly-applicable starter set
 DEFAULT_FOCUSES = ["extra_features", "pressure_test", "solid_functional", "review_grade"]
 
 
@@ -936,11 +1215,27 @@ class BroadcastController:
         5. Everything else in original order
         """
         focus_keywords = {
-            "deep_dive": ["architecture", "required", "roadmap"],
-            "extra_features": ["features", "required", "roadmap"],
+            # Foundation & correctness
+            "deep_dive": ["architecture", "required", "roadmap", "framework"],
+            "solid_functional": ["required", "testing", "architecture", "ui"],
             "pressure_test": ["protections", "testing", "bug", "debug"],
-            "explore_expand": ["roadmap", "architecture", "data"],
-            "solid_functional": ["required", "testing", "architecture"],
+            "error_recovery": ["protections", "bug", "gdb", "crash", "retry"],
+            # Capability expansion
+            "extra_features": ["features", "required", "roadmap"],
+            "explore_expand": ["roadmap", "architecture", "data", "expand"],
+            # Non-functional
+            "performance": ["performance", "memory", "cache", "optimization"],
+            "security": ["protections", "input", "validation", "auth"],
+            "concurrency": ["reflex", "async", "thread", "timing"],
+            # Observability & config
+            "logging_observability": ["testing", "debug", "bug", "monitor"],
+            "configuration": ["config", "env", "settings", "roadmap"],
+            # Presentation
+            "beautiful_gui": ["ui", "battle", "menu", "flow"],
+            "reference_images": ["ui", "menu", "flow", "battle"],
+            # Hygiene
+            "documentation": ["readme", "architecture", "required"],
+            "test_suite": ["testing", "debug", "protections", "required"],
             "review_grade": ["architecture", "required", "roadmap", "testing"],
         }
 
