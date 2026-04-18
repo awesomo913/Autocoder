@@ -107,9 +107,10 @@ class ProviderChainConfig:
         "Gemini Deep Research",     # rank 7: multi-step reports
         "ChatGPT",                  # rank 8: cloud browser
         "Ollama API",               # rank 9: local, always available
-        "OpenCode",                 # rank 10: meta-router to DeepSeek et al.
-        "Copilot",                  # rank 11: last resort
-        "Qwen API",                 # rank 12: DashScope direct (optional)
+        "Qwen Local",               # rank 10: LM Studio Qwen3.5 35B local
+        "OpenCode",                 # rank 11: meta-router to DeepSeek et al.
+        "Copilot",                  # rank 12: last resort
+        "Qwen API",                 # rank 13: DashScope direct (optional)
     ])
 
 

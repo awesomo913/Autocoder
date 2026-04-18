@@ -507,6 +507,169 @@ def _make_cerebras():
     )
 
 
+# Shared state for LM Studio subprocess
+_lms_server_started_by_us: bool = False
+_LMS_PORT = 1234
+
+
+def _make_qwen_local():
+    """Qwen running locally via LM Studio's OpenAI-compatible server.
+
+    Detects if LM Studio server is already running on :1234. If not,
+    starts it via `lms.exe server start` and loads the Qwen model the
+    user has downloaded. Reuses the `_OpenAICompatClient` once live.
+
+    No auth required (local-only). No rate limits. Only cost is local
+    compute — so this is a perfect fallback when cloud rungs are
+    cooling down.
+    """
+    import os
+    import socket
+    import subprocess
+    import time as _time
+    import urllib.request
+    import json as _json
+
+    global _lms_server_started_by_us
+
+    lms_exe = os.path.expanduser("~/.lmstudio/bin/lms.exe")
+    if not os.path.isfile(lms_exe):
+        logger.info("[chain] Qwen Local skipped — lms.exe not found (install LM Studio)")
+        return None
+
+    # Check if server is listening
+    def _server_alive() -> bool:
+        try:
+            with socket.create_connection(("127.0.0.1", _LMS_PORT), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
+    # Find a loaded CHAT model. Filter out embedding / audio / vision
+    # models since they can't handle /chat/completions.
+    _EMBEDDING_HINTS = (
+        "embed", "rerank", "sentence", "bge-", "nomic-embed",
+    )
+
+    def _loaded_chat_model_id() -> Optional[str]:
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{_LMS_PORT}/v1/models",
+                headers={"Accept": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = _json.loads(resp.read().decode("utf-8", errors="replace"))
+        except Exception:
+            return None
+        chat_models = [
+            m.get("id", "") for m in data.get("data", [])
+            if m.get("id")
+            and not any(h in m["id"].lower() for h in _EMBEDDING_HINTS)
+        ]
+        # Prefer a Qwen model if one's loaded
+        for mid in chat_models:
+            if "qwen" in mid.lower():
+                return mid
+        return chat_models[0] if chat_models else None
+
+    # Phase 1: start the server if needed
+    if not _server_alive():
+        try:
+            import atexit
+            logger.info("[chain] starting LM Studio server on :%d", _LMS_PORT)
+            proc = subprocess.Popen(
+                [lms_exe, "server", "start", "--port", str(_LMS_PORT)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            _lms_server_started_by_us = True
+
+            def _cleanup():
+                if _lms_server_started_by_us:
+                    try:
+                        subprocess.run(
+                            [lms_exe, "server", "stop"], timeout=5,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    except Exception:
+                        pass
+
+            atexit.register(_cleanup)
+        except Exception as e:
+            logger.warning("[chain] LM Studio server start failed: %s", e)
+            return None
+
+        # Wait up to 15s for server to be listening
+        for _ in range(60):
+            if _server_alive():
+                break
+            _time.sleep(0.25)
+        else:
+            logger.warning("[chain] LM Studio server didn't become ready")
+            return None
+
+    # Phase 2: ensure a CHAT model is loaded
+    model_id = _loaded_chat_model_id()
+    if model_id is None:
+        # Check what's available via `lms ls` (parsing stdout is
+        # ugly but it's the only way to know if the user has a chat
+        # model downloaded before we try to load one).
+        try:
+            result = subprocess.run(
+                [lms_exe, "ls"],
+                capture_output=True, text=True, timeout=10,
+            )
+            catalog = result.stdout or ""
+        except Exception:
+            catalog = ""
+
+        # Pick a likely Qwen model from the catalog
+        qwen_candidate: Optional[str] = None
+        for line in catalog.splitlines():
+            if "qwen" in line.lower() and "embed" not in line.lower():
+                # Take the first token of the line as the model id
+                parts = line.split()
+                if parts:
+                    qwen_candidate = parts[0]
+                    break
+
+        if qwen_candidate:
+            try:
+                logger.info("[chain] loading %s into LM Studio", qwen_candidate)
+                subprocess.run(
+                    [lms_exe, "load", qwen_candidate],
+                    timeout=180,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                model_id = _loaded_chat_model_id()
+            except Exception as e:
+                logger.warning("[chain] Qwen load failed: %s", e)
+
+    if model_id is None:
+        logger.info(
+            "[chain] Qwen Local skipped — no chat model loaded in "
+            "LM Studio. Download one: `lms get qwen3.5-35b` (or any "
+            "other Qwen / Llama chat model), then this rung will "
+            "auto-detect it. Running `lms ls` shows only your "
+            "embedding model right now — the Qwen folder at "
+            r"~/.lmstudio/models/lmstudio-community/Qwen3.5-35B-A3B-GGUF "
+            "looks incomplete (only the mmproj file is present)."
+        )
+        return None
+
+    logger.info("[chain] Qwen Local using model: %s", model_id)
+    return _OpenAICompatClient(
+        endpoint=f"http://127.0.0.1:{_LMS_PORT}/v1/chat/completions",
+        api_key="",  # Local server, no auth
+        model=model_id,
+        provider_label=f"Qwen Local/{model_id}",
+        timeout=600,  # Local 35B model may take a while
+    )
+
+
 # ── Gemini mode variants ────────────────────────────────────────────
 #
 # Google's Gemini web UI supports multiple modes. Each mode lives on a
@@ -801,6 +964,7 @@ def build_default_chain() -> ProviderChain:
         ProviderEntry("Gemini", _make_gemini),          # generic fallback
         ProviderEntry("ChatGPT", _make_chatgpt),
         ProviderEntry("Ollama API", _make_ollama),
+        ProviderEntry("Qwen Local", _make_qwen_local),  # LM Studio + Qwen3.5-35B
         ProviderEntry("OpenCode", _make_opencode),
         ProviderEntry("Copilot", _make_copilot),
         ProviderEntry("Qwen API", _make_qwen),
@@ -825,6 +989,7 @@ def build_chain_from_names(names: list[str]) -> ProviderChain:
         "Gemini": _make_gemini,
         "ChatGPT": _make_chatgpt,
         "Ollama API": _make_ollama,
+        "Qwen Local": _make_qwen_local,
         "OpenCode": _make_opencode,
         "Copilot": _make_copilot,
         "Qwen API": _make_qwen,
