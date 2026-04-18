@@ -1328,6 +1328,27 @@ def _find_unclaimed_target(
     return None
 
 
+def _derive_profile_hints(profile_name: str) -> tuple[str, str]:
+    """Pull the url_pattern + title_pattern off a named profile.
+
+    Safety net: if the caller doesn't pass a url_pattern, we still match
+    the right tab. Without this fallback, `connect_to_ai_site('Gemini')`
+    picks whatever tab is first in the list — a real bug that surfaces
+    as soon as multiple AI tabs are open.
+    """
+    try:
+        from .ai_profiles import get_profile
+        p = get_profile(profile_name)
+        if p is not None:
+            return (
+                getattr(p, "url_pattern", "") or "",
+                getattr(p, "title_pattern", "") or "",
+            )
+    except Exception:
+        pass
+    return "", ""
+
+
 def connect_to_ai_site(
     profile_name: str,
     url_pattern: str = "",
@@ -1351,6 +1372,13 @@ def connect_to_ai_site(
     Returns:
         CDPChatAutomation ready to use, or None if not found.
     """
+    # If caller didn't supply matchers, fall back to the profile's own
+    # url_pattern / title_pattern. Without this, with multiple AI tabs
+    # open, every connect_to_ai_site() call picks whatever tab is first
+    # in the list — they all end up pointing at the same tab.
+    if not url_pattern and not title_pattern:
+        url_pattern, title_pattern = _derive_profile_hints(profile_name)
+
     # Build list of ports to try: specified port first, then all corner ports
     ports_to_try = [port]
     for p in CDP_CORNER_PORTS.values():
