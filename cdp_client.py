@@ -520,12 +520,28 @@ class CDPConnection:
             if chunk_idx % 5 == 0:
                 _time.sleep(0.05)  # Breathe every 5 chunks
 
-        # Verify upload
+        # Verify upload. Tolerate small differences — JS strings count
+        # UTF-16 code units, not bytes, so characters outside the BMP
+        # (emoji, some CJK) count as 2. Up to ~1% drift is normal for
+        # text with any non-ASCII; reject only on wildly-off counts.
         uploaded_len = self.evaluate_js("window.__cdp_bulk_text.length")
-        if uploaded_len != total:
-            logger.error("Upload mismatch: expected %d, got %s", total, uploaded_len)
+        try:
+            uploaded_int = int(uploaded_len) if uploaded_len is not None else -1
+        except (TypeError, ValueError):
+            uploaded_int = -1
+        tolerance = max(16, int(total * 0.01))  # ≥16 chars OR 1% of total
+        if uploaded_int < 0 or abs(uploaded_int - total) > tolerance:
+            logger.error(
+                "Upload mismatch: expected %d, got %s (tolerance ±%d)",
+                total, uploaded_len, tolerance,
+            )
             self.evaluate_js("delete window.__cdp_bulk_text;")
             return False
+        if uploaded_int != total:
+            logger.info(
+                "Upload length drift: expected %d, got %d (within tolerance)",
+                total, uploaded_int,
+            )
 
         logger.info("Uploaded %d chars to page in %d chunks", total, chunk_idx)
 

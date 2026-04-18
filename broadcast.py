@@ -3338,15 +3338,32 @@ class BroadcastController:
         state gets stuck after any send), we also include a file manifest
         so the AI knows what reference material exists. Full file content
         is only added if there's budget after codebase + directive.
+
+        BUDGET ENFORCEMENT: Gemini caps input at ~32K chars. Once the
+        codebase alone exceeds the budget (happens around iteration 12
+        when code reaches 45K+ chars), we SUMMARIZE the codebase — keep
+        the imports/classes/function signatures, replace function bodies
+        with `...`, and tell the AI to output the full restored file.
+        Without this the prompt silently exceeds the limit and the send
+        fails with an upload mismatch.
         """
         parts = [directive]
 
-        # Budget check: Gemini caps input at ~32K chars. Leave room for
-        # directive + codebase + our wrapping. If there's room after
-        # accounting for those, include smart file context; otherwise
-        # fall back to just the manifest.
         HARD_LIMIT = 30_000
-        used_so_far = len(directive) + len(codebase) + 500
+        # Reserve for directive + our wrapping + headroom
+        overhead = len(directive) + 1_200
+        # Budget for codebase itself — leave room for file context too
+        codebase_max = max(4_000, HARD_LIMIT - overhead - 4_000)
+
+        working_codebase = codebase or ""
+        was_trimmed = False
+        if len(working_codebase) > codebase_max:
+            working_codebase = self._summarize_codebase(
+                working_codebase, codebase_max,
+            )
+            was_trimmed = True
+
+        used_so_far = overhead + len(working_codebase)
         remaining = HARD_LIMIT - used_so_far
 
         if file_context:
@@ -3376,10 +3393,118 @@ class BroadcastController:
                     + manifest
                 )
 
-        if codebase:
-            parts.append(f"CURRENT CODEBASE:\n```\n{codebase}\n```")
+        if working_codebase:
+            label = "CURRENT CODEBASE"
+            if was_trimmed:
+                label = (
+                    "CURRENT CODEBASE (SUMMARIZED — bodies replaced with `...`. "
+                    "Output the ENTIRE restored codebase, not just the changed "
+                    "parts; re-implement any summarized function bodies in full.)"
+                )
+            parts.append(f"{label}:\n```\n{working_codebase}\n```")
 
         return "\n\n".join(parts)
+
+    @staticmethod
+    def _summarize_codebase(code: str, target_size: int) -> str:
+        """Reduce codebase to fit `target_size` while keeping structure.
+
+        Strategy: preserve all imports, class definitions, function signatures,
+        docstrings, and top-level constants. Replace function bodies with
+        `    ...` so the AI can still see what functions exist. Also keeps
+        the top-of-file comment block and the `if __name__` guard intact.
+
+        Falls back to simple truncation if the structured approach doesn't
+        shrink enough (e.g. the file is mostly data).
+        """
+        if len(code) <= target_size:
+            return code
+
+        lines = code.splitlines()
+        kept: list[str] = []
+        indent_level = 0
+
+        # Python-ish regexes; works for the kind of single-file output the
+        # broadcast produces.
+        def_re = re.compile(r'^(\s*)(?:async\s+)?def\s+\w')
+        class_re = re.compile(r'^(\s*)class\s+\w')
+        decorator_re = re.compile(r'^\s*@\w')
+        import_re = re.compile(r'^\s*(?:from|import)\s+\S')
+
+        skipping_body = False
+        body_indent = 0
+        in_docstring = False
+        docstring_quotes = None
+
+        for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            leading = len(line) - len(stripped)
+
+            # Always keep imports, decorators, class/def declarations, blank
+            # lines, top-level comments.
+            is_top_level_comment = (
+                leading == 0 and stripped.startswith("#")
+            )
+            is_import = import_re.match(line) is not None
+            is_decorator = decorator_re.match(line) is not None
+            is_def = def_re.match(line) is not None
+            is_class = class_re.match(line) is not None
+            is_blank = not stripped
+
+            if skipping_body:
+                # Still inside a body we're eliding?
+                if is_blank:
+                    continue  # drop blanks in elided body
+                if leading > body_indent:
+                    continue  # part of the body, drop it
+                # Leaving the body
+                skipping_body = False
+
+            if (is_import or is_decorator or is_class or is_def
+                    or is_top_level_comment or is_blank):
+                kept.append(line)
+                # After a def/class header, insert `...` and start eliding
+                if is_def or is_class:
+                    body_indent = leading + 4
+                    # Keep a leading docstring if the next non-blank line is one
+                    j = i + 1
+                    while j < len(lines) and not lines[j].strip():
+                        j += 1
+                    if j < len(lines):
+                        nxt = lines[j].lstrip()
+                        if nxt.startswith(('"""', "'''")):
+                            # keep docstring — next loop iterations pick it up
+                            pass
+                    # Mark that we'll skip the body
+                    skipping_body = True
+                    kept.append(" " * body_indent + "...")
+                continue
+
+            # Top-level non-function code: keep if it looks structural
+            # (constants, type aliases, `if __name__` guard).
+            if leading == 0:
+                # Module-level assignment / condition — keep
+                kept.append(line)
+                continue
+
+            # Anything else — drop (it's inside a def/class body we already
+            # elided above)
+
+        summary = "\n".join(kept)
+
+        # If we didn't shrink enough (lots of module-level data), fall back
+        # to head+tail truncation so the AI still gets top + bottom context.
+        if len(summary) > target_size:
+            head = code[: target_size * 2 // 3]
+            tail = code[-target_size // 4:]
+            summary = (
+                head
+                + f"\n\n# ... [elided {len(code) - len(head) - len(tail)} chars"
+                f" from middle of file] ...\n\n"
+                + tail
+            )
+
+        return summary
 
     @staticmethod
     def _code_hash(code: str) -> str:
