@@ -86,27 +86,30 @@ class PressureTestConfig:
 class ProviderChainConfig:
     """Ordered list of providers to try for every broadcast iteration.
 
-    Ranked by actual pressure-test performance (2026-04-18):
-      1. OpenRouter API — strongest + most resilient (rotates free models)
-      2. Gemini         — best single-provider when not rate-limited
-      3. ChatGPT        — works when UI selectors hold
-      4. Ollama API     — local fallback, always available, slow
-      5. Copilot        — last resort
+    Expanded roster (2026-04-18):
+      - OpenCode replaces DeepSeek direct (OpenCode routes to DeepSeek
+        + Anthropic + Groq + more via its own credential store)
+      - Groq + Cerebras added as fast free Llama 3.3 70B rungs
+      - Gemini split into 4 modes: 2.5 Pro, 2.5 Flash, Canvas,
+        Deep Research. Each has its own tab/URL so iterations rotate
+        across Gemini's own capabilities, not just cross-provider.
 
-    DeepSeek and Qwen entries are pre-wired; they auto-enable once the
-    user drops an API key file (~/.autocoder/deepseek.key or qwen.key)
-    or sets DEEPSEEK_API_KEY / DASHSCOPE_API_KEY env vars.
+    Any rung with no key / no tab / no local server auto-skips.
     """
     enabled: bool = True
     order: list[str] = field(default_factory=lambda: [
-        "OpenRouter API",
-        "Gemini",
-        "ChatGPT",
-        "Ollama API",
-        "Copilot",
-        # Auto-skipped until keys are configured
-        "DeepSeek API",
-        "Qwen API",
+        "OpenRouter API",           # rank 1: A grade, free-model rotation
+        "Groq",                     # rank 2: fast free Llama 3.3 70B
+        "Cerebras",                 # rank 3: fastest-inference Llama 3.3 70B
+        "Gemini 2.5 Pro",           # rank 4: best Gemini quality
+        "Gemini 2.5 Flash",         # rank 5: fast free Gemini
+        "Gemini Canvas",            # rank 6: interactive editor mode
+        "Gemini Deep Research",     # rank 7: multi-step reports
+        "ChatGPT",                  # rank 8: cloud browser
+        "Ollama API",               # rank 9: local, always available
+        "OpenCode",                 # rank 10: meta-router to DeepSeek et al.
+        "Copilot",                  # rank 11: last resort
+        "Qwen API",                 # rank 12: DashScope direct (optional)
     ])
 
 
