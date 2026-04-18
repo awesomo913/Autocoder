@@ -957,6 +957,31 @@ class GeminiCoderWebApp(GeminiCoderApp):
         )
         self._bc_stop_btn.pack(side="left", padx=4)
 
+        # Graceful-end button: finish current iteration, then produce one
+        # last output — a FINAL polished version if the project is >1/3
+        # done, or a HANDOFF document if it's still closer to the start.
+        # Unlike Stop, this doesn't kill work in progress; it wraps up.
+        self._bc_graceful_btn = ctk.CTkButton(
+            bc_btn_row, text="\U0001F3C1 End Gracefully",
+            font=("Segoe UI", 13, "bold"),
+            fg_color="#d35400", hover_color="#e67e22",
+            height=40, state="disabled",
+            command=self._on_broadcast_graceful_end,
+        )
+        self._bc_graceful_btn.pack(side="left", padx=4)
+        Tooltip(
+            self._bc_graceful_btn,
+            "Wrap up at the best stopping point: finish the current "
+            "iteration, then produce one final output.\n\n"
+            "• If the project is more than 1/3 done: a FINAL polished, "
+            "consolidated version of the whole idea.\n\n"
+            "• If it's closer to the start: a HANDOFF document "
+            "listing what's done, what's remaining, and exactly what "
+            "to do next — plus the current work completed so nothing "
+            "is left mid-flight.\n\n"
+            "Use this instead of Stop when you want a clean conclusion."
+        )
+
         self._bc_save_btn = ctk.CTkButton(
             bc_btn_row, text="\U0001F4BE Save All",
             font=("Segoe UI", 13, "bold"),
@@ -1357,6 +1382,10 @@ class GeminiCoderWebApp(GeminiCoderApp):
         self._broadcast.start(config)
         self._bc_start_btn.configure(state="disabled")
         self._bc_stop_btn.configure(state="normal")
+        # Reset graceful-end button to its default state for the new run
+        self._bc_graceful_btn.configure(
+            state="normal", text="\U0001F3C1 End Gracefully",
+        )
         self._toast(
             f"Autocoding on {session.ai_profile.name} ({session.corner})", "success"
         )
@@ -1368,8 +1397,30 @@ class GeminiCoderWebApp(GeminiCoderApp):
         self.session_mgr.stop_all()
         self._bc_start_btn.configure(state="normal")
         self._bc_stop_btn.configure(state="disabled")
+        self._bc_graceful_btn.configure(state="disabled")
         self._bc_status.configure(text="Stopped")
         self._toast("Broadcast stopped", "info")
+
+    def _on_broadcast_graceful_end(self) -> None:
+        """Request a clean wrap-up: finish current iteration, produce FINAL
+        or HANDOFF output depending on how far along the project is, then
+        stop. Unlike Stop, this doesn't cut work mid-flight."""
+        if not self._broadcast.is_running:
+            self._toast("No active broadcast to end", "info")
+            return
+        self._broadcast.request_graceful_end()
+        # Lock the button so it can't be spammed; the broadcast takes
+        # care of itself from here. Stop stays available as the escape hatch.
+        self._bc_graceful_btn.configure(
+            state="disabled",
+            text="\u23F3 Wrapping up…",
+        )
+        self._bc_status.configure(text="Wrapping up — finishing last iteration")
+        self._toast(
+            "Ending gracefully — will produce a final or handoff output "
+            "after current iteration.",
+            "info",
+        )
 
     def _on_broadcast_save(self) -> None:
         """Save all current broadcast outputs to Downloads."""
@@ -1475,6 +1526,7 @@ class GeminiCoderWebApp(GeminiCoderApp):
             self._broadcast.stop()
             self._bc_start_btn.configure(state="normal")
             self._bc_stop_btn.configure(state="disabled")
+            self._bc_graceful_btn.configure(state="disabled")
             self._bc_status.configure(text="KILLED")
 
         self.session_mgr.stop_all()

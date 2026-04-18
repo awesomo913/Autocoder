@@ -1855,6 +1855,11 @@ class BroadcastController:
         self._sm = session_manager
         self._running = False
         self._stop_event = threading.Event()
+        # Graceful-end flag: lets the user request a clean wrap-up.
+        # When set, the loop finishes the current iteration, then produces
+        # either a FINAL consolidated version (if >33% done) or a HANDOFF
+        # document (if <33% done) describing what remains, then exits.
+        self._graceful_end = threading.Event()
         self._threads: list[threading.Thread] = []
         self._active_thread_count = 0
         self._active_thread_lock = threading.Lock()
@@ -1915,6 +1920,7 @@ class BroadcastController:
             return
 
         self._stop_event.clear()
+        self._graceful_end.clear()
         self._running = True
         self._config = config
         self._iteration_counts.clear()
@@ -2025,6 +2031,210 @@ class BroadcastController:
         if self._on_complete:
             self._on_complete(dict(self._iteration_counts))
 
+    def request_graceful_end(self) -> None:
+        """Ask the broadcast to wrap up cleanly after the current iteration.
+
+        Unlike `stop()` (which halts mid-flight), graceful_end lets the AI:
+        - finish whatever it's generating right now, then
+        - produce ONE final output:
+            - if the project is > ~1/3 done: a consolidated FINAL version
+              of the total idea
+            - if < 1/3 done: a HANDOFF document describing what's done,
+              what's remaining, and what the last iteration was working
+              on — so a human or another run can pick up the thread
+
+        The session loop polls this flag after each iteration completes.
+        """
+        logger.info("Graceful-end requested — will wrap up after current iteration")
+        self._graceful_end.set()
+
+    def _build_graceful_end_prompt(self, task: str, codebase: str,
+                                   completion_pct: int) -> str:
+        """Prompt Gemini to produce the final wrap-up output.
+
+        Two modes:
+        - FINAL MODE (>=33%): tie everything together, remove stubs,
+          produce a production-ready consolidated version.
+        - HANDOFF MODE (<33%): document what's done, what's missing, and
+          the next concrete steps so someone else can continue.
+        """
+        if completion_pct >= 33:
+            return (
+                "GRACEFUL END — FINAL CONSOLIDATED VERSION\n\n"
+                f"This is the LAST iteration for this project. Based on the "
+                f"ORIGINAL TASK and the CURRENT CODEBASE below, produce ONE "
+                f"final polished version that ties everything together.\n\n"
+                f"Estimated completion: {completion_pct}% (>33% threshold → "
+                f"produce a finished-enough consolidated version, not a "
+                f"handoff doc).\n\n"
+                f"REQUIREMENTS:\n"
+                f"1. Remove all TODO / STUB / placeholder markers — either "
+                f"implement them with a reasonable default or delete them.\n"
+                f"2. Ensure every function is connected and callable. Delete "
+                f"dead code.\n"
+                f"3. Add a top-of-file docstring summarizing what this "
+                f"program does, how to run it, and its key limitations.\n"
+                f"4. Add a short 'FINAL STATUS' comment block near the top "
+                f"listing what's fully working, what's partially working, "
+                f"and what's out of scope.\n"
+                f"5. If anything genuinely requires external data that "
+                f"isn't available (like the file references mentioned in "
+                f"the reference material), leave a clear `raise "
+                f"NotImplementedError('needs X')` rather than a silent stub.\n"
+                f"6. Output the ENTIRE polished codebase. No commentary "
+                f"outside the code.\n\n"
+                f"ORIGINAL TASK:\n{task}\n\n"
+                f"CURRENT CODEBASE (will be replaced by your output):\n"
+                f"```\n{codebase}\n```"
+            )
+        return (
+            "GRACEFUL END — HANDOFF DOCUMENT\n\n"
+            f"This is the LAST iteration for this project. Based on the "
+            f"ORIGINAL TASK and the CURRENT CODEBASE below, produce a "
+            f"HANDOFF DOCUMENT so someone else can pick up where this left "
+            f"off.\n\n"
+            f"Estimated completion: {completion_pct}% (<33% threshold → "
+            f"produce a handoff doc, not a final version — the project is "
+            f"closer to the start than to finished).\n\n"
+            f"OUTPUT FORMAT (one document, in this order):\n"
+            f"1. === PROJECT OVERVIEW ===\n"
+            f"   One paragraph: what this project is supposed to be, per "
+            f"the original task.\n"
+            f"2. === COMPLETION STATUS ===\n"
+            f"   Estimated {completion_pct}% complete. Brief justification.\n"
+            f"3. === WHAT'S DONE ===\n"
+            f"   Bullet list of features / modules that work end-to-end.\n"
+            f"4. === WHAT'S PARTIALLY DONE ===\n"
+            f"   Bullet list of things that exist as scaffolding but aren't "
+            f"functional yet. Note WHY (missing data, missing API, etc.).\n"
+            f"5. === WHAT'S MISSING ===\n"
+            f"   Bullet list of major required items from the task that "
+            f"haven't been started. Prioritize P0 > P1 > P2 > P3 where "
+            f"applicable.\n"
+            f"6. === LAST ITERATION FOCUS ===\n"
+            f"   What this iteration was specifically working on when the "
+            f"session ended. Whatever was mid-flight, finish it in the "
+            f"codebase below.\n"
+            f"7. === CRITICAL NOTES FOR THE NEXT PERSON ===\n"
+            f"   Gotchas, non-obvious decisions, file paths / API keys / "
+            f"external dependencies they'll need.\n"
+            f"8. === NEXT CONCRETE STEPS ===\n"
+            f"   Ordered 5-10 item list of exactly what to do next.\n"
+            f"9. === FINAL CODEBASE ===\n"
+            f"   The current codebase, with the last iteration's work "
+            f"completed in it (don't leave mid-function). Every stub marked "
+            f"`# TODO(handoff): <specific-thing>` so it's greppable.\n\n"
+            f"ORIGINAL TASK:\n{task}\n\n"
+            f"CURRENT CODEBASE:\n```\n{codebase}\n```"
+        )
+
+    def _estimate_completion_pct(self, task: str, codebase: str,
+                                  iterations_done: int) -> int:
+        """Rough heuristic for how complete the project is (0-100).
+
+        Signals:
+        - codebase size vs typical "done" size (~40K chars is substantial)
+        - count of TODO/STUB/NotImplementedError markers (fewer = more done)
+        - iterations done vs typical "decent pass" count (~15-20)
+
+        Not precise — just good enough to pick between FINAL and HANDOFF
+        modes. Caller can override with an explicit threshold.
+        """
+        if not codebase:
+            return 0
+
+        # Size signal: 40K = "reasonably complete" single-file project
+        size_score = min(100, int(len(codebase) / 400))  # 40K → 100
+
+        # Stub density (negative signal) — more stubs = less done
+        stub_markers = [
+            "TODO", "FIXME", "XXX", "STUB",
+            "NotImplementedError", "# placeholder",
+            "raise NotImplemented", "pass  # TODO",
+        ]
+        stub_count = sum(codebase.upper().count(m.upper()) for m in stub_markers)
+        # ~10 stubs in 40K is normal; >50 means scaffolding-heavy
+        stub_penalty = min(40, stub_count * 2)
+
+        # Iteration signal: 15-20 clean iterations = decent pass
+        iter_score = min(100, int(iterations_done * 5))  # 20 iters → 100
+
+        # Weighted average: size is the strongest signal
+        pct = int(0.55 * size_score + 0.3 * iter_score - stub_penalty)
+        return max(0, min(100, pct))
+
+    def _run_graceful_end_for_session(
+        self, session, config: "BroadcastConfig",
+        current_codebase: str, iteration: int,
+    ) -> None:
+        """Run the wrap-up iteration and save the final document."""
+        sid = session.session_id
+        ai_name = session.ai_profile.name
+
+        pct = self._estimate_completion_pct(
+            config.task, current_codebase, iteration,
+        )
+        mode = "FINAL" if pct >= 33 else "HANDOFF"
+        logger.info("[%s] Graceful end: %d%% complete → %s mode",
+                    ai_name, pct, mode)
+
+        if self._on_output:
+            self._on_output(
+                sid, "system",
+                f"\n{'='*60}\n"
+                f"[{ai_name}] GRACEFUL END requested\n"
+                f"Estimated {pct}% complete → producing {mode} output.\n"
+                f"{'='*60}\n"
+            )
+
+        # Fresh conversation so the prompt is clean
+        try:
+            session.client.new_conversation()
+            time.sleep(1)
+        except Exception as e:
+            logger.warning("[%s] new_conversation() before graceful-end: %s",
+                           ai_name, e)
+
+        prompt = self._build_graceful_end_prompt(
+            config.task, current_codebase, pct,
+        )
+        try:
+            result = session.client.generate(
+                prompt=prompt,
+                on_progress=lambda t, s=sid: (
+                    self._on_output(s, "code", t) if self._on_output else None
+                ),
+            )
+        except Exception as e:
+            logger.error("[%s] Graceful-end generation failed: %s", ai_name, e)
+            result = ""
+
+        # Save as a specially-named final file so it's easy to find
+        feature = self._make_feature_name(config.task)
+        label = f"{feature}_{mode}_{pct}pct"
+        try:
+            from .auto_save import save_task_output
+            path = save_task_output(
+                title=label,
+                output=result or current_codebase,
+                ai_name=ai_name,
+                corner=session.corner,
+                elapsed_seconds=0.0,
+                iterations=iteration + 1,
+            )
+            if self._on_status:
+                self._on_status(
+                    f"Graceful end ({mode}, {pct}%): {path.name if path else label}"
+                )
+            if self._on_output and path:
+                self._on_output(
+                    sid, "result",
+                    f"\n[GRACEFUL END — {mode} @ {pct}% complete]\n"
+                    f"Saved to: {path.name}\n\n" + (result or "")
+                )
+        except Exception as e:
+            logger.error("[%s] Graceful-end save failed: %s", ai_name, e)
+
     def resume(self) -> bool:
         """Resume a previously stopped broadcast from where it left off.
 
@@ -2067,6 +2277,7 @@ class BroadcastController:
 
         self._config = config
         self._stop_event.clear()
+        self._graceful_end.clear()
         self._running = True
         self._threads.clear()
 
@@ -4334,6 +4545,14 @@ class BroadcastController:
             # ── Improvement loop (context-aware) ─────────────────────
             iteration = 1
             while not self._stop_event.is_set():
+                # Graceful end requested? Run one final wrap-up iteration
+                # (FINAL consolidated version if >33% done, HANDOFF doc if
+                # <33% done) and exit.
+                if self._graceful_end.is_set():
+                    self._run_graceful_end_for_session(
+                        session, config, current_codebase, iteration,
+                    )
+                    break
                 # Check limits
                 if iteration >= config.max_iterations:
                     break
@@ -4688,6 +4907,13 @@ class BroadcastController:
 
             iteration = start_iteration
             while not self._stop_event.is_set():
+                # Graceful end (FINAL / HANDOFF wrap-up) — same policy as
+                # _session_loop. Works after resume too.
+                if self._graceful_end.is_set():
+                    self._run_graceful_end_for_session(
+                        session, config, current_codebase, iteration,
+                    )
+                    break
                 if iteration >= config.max_iterations:
                     break
                 if config.time_limit_minutes > 0:
