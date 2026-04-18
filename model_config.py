@@ -83,10 +83,39 @@ class PressureTestConfig:
 
 
 @dataclass
+class ProviderChainConfig:
+    """Ordered list of providers to try for every broadcast iteration.
+
+    Ranked by actual pressure-test performance (2026-04-18):
+      1. OpenRouter API — strongest + most resilient (rotates free models)
+      2. Gemini         — best single-provider when not rate-limited
+      3. ChatGPT        — works when UI selectors hold
+      4. Ollama API     — local fallback, always available, slow
+      5. Copilot        — last resort
+
+    DeepSeek and Qwen entries are pre-wired; they auto-enable once the
+    user drops an API key file (~/.autocoder/deepseek.key or qwen.key)
+    or sets DEEPSEEK_API_KEY / DASHSCOPE_API_KEY env vars.
+    """
+    enabled: bool = True
+    order: list[str] = field(default_factory=lambda: [
+        "OpenRouter API",
+        "Gemini",
+        "ChatGPT",
+        "Ollama API",
+        "Copilot",
+        # Auto-skipped until keys are configured
+        "DeepSeek API",
+        "Qwen API",
+    ])
+
+
+@dataclass
 class ModelConfig:
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     openrouter: OpenRouterConfig = field(default_factory=OpenRouterConfig)
     pressure_test: PressureTestConfig = field(default_factory=PressureTestConfig)
+    provider_chain: ProviderChainConfig = field(default_factory=ProviderChainConfig)
     reset_on_launch: bool = True
 
 
@@ -117,6 +146,7 @@ def load_config(path: Path = CONFIG_PATH) -> ModelConfig:
         ollama=OllamaConfig(**data.get("ollama", {})),
         openrouter=OpenRouterConfig(**data.get("openrouter", {})),
         pressure_test=PressureTestConfig(**data.get("pressure_test", {})),
+        provider_chain=ProviderChainConfig(**data.get("provider_chain", {})),
         reset_on_launch=data.get("reset_on_launch", True),
     )
     return cfg
@@ -128,6 +158,7 @@ def save_config(cfg: ModelConfig, path: Path = CONFIG_PATH) -> None:
         "ollama": asdict(cfg.ollama),
         "openrouter": asdict(cfg.openrouter),
         "pressure_test": asdict(cfg.pressure_test),
+        "provider_chain": asdict(cfg.provider_chain),
         "reset_on_launch": cfg.reset_on_launch,
     }
     _atomic_write_json(path, data)
@@ -245,6 +276,7 @@ if __name__ == "__main__":
         "ollama": asdict(cfg.ollama),
         "openrouter": asdict(cfg.openrouter),
         "pressure_test": asdict(cfg.pressure_test),
+        "provider_chain": asdict(cfg.provider_chain),
         "reset_on_launch": cfg.reset_on_launch,
     }, indent=2))
     if "--reset" in sys.argv:
